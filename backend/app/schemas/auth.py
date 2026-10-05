@@ -40,3 +40,8 @@ class LoginResponse(BaseModel):
     session_id: UUID
     session_token: str
     session_expires_at: datetime
+
+
+class CurrentUserResponse(BaseModel):
+    user_id: UUID
+    status: str

@@ -382,3 +382,139 @@ def test_login_endpoint_rejects_extra_field() -> None:
     )
 
     assert response.status_code == 422
+
+
+def test_me_endpoint_returns_authenticated_user() -> None:
+    email = _email()
+    password = "CommonDepth-Test-Password-2026!"
+
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+
+    assert registration.status_code == 201
+    body = registration.json()
+    user_id = body["user_id"]
+
+    try:
+        response = client.get(
+            "/api/v1/auth/me",
+            headers={
+                "Authorization": f"Bearer {body['session_token']}",
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "user_id": user_id,
+            "status": "active",
+        }
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_me_endpoint_rejects_missing_credentials() -> None:
+    response = client.get("/api/v1/auth/me")
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication failed."
+
+
+def test_me_endpoint_rejects_unknown_token() -> None:
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={
+            "Authorization": "Bearer unknown-session-token",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication failed."
+
+
+def test_logout_endpoint_revokes_session() -> None:
+    email = _email()
+    password = "CommonDepth-Test-Password-2026!"
+
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+
+    assert registration.status_code == 201
+    body = registration.json()
+    user_id = body["user_id"]
+
+    try:
+        headers = {
+            "Authorization": f"Bearer {body['session_token']}",
+        }
+
+        response = client.post(
+            "/api/v1/auth/logout",
+            headers=headers,
+        )
+
+        assert response.status_code == 204
+
+        me_response = client.get(
+            "/api/v1/auth/me",
+            headers=headers,
+        )
+
+        assert me_response.status_code == 401
+        assert me_response.json()["detail"] == "Authentication failed."
+
+        db = SessionLocal()
+        try:
+            session = db.get(IdentitySession, body["session_id"])
+            assert session is not None
+            assert session.revoked_at is not None
+            assert session.revoke_reason == "logout"
+        finally:
+            db.close()
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_logout_endpoint_is_idempotent_for_revoked_session() -> None:
+    email = _email()
+    password = "CommonDepth-Test-Password-2026!"
+
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+
+    assert registration.status_code == 201
+    body = registration.json()
+    user_id = body["user_id"]
+
+    try:
+        headers = {
+            "Authorization": f"Bearer {body['session_token']}",
+        }
+
+        first = client.post(
+            "/api/v1/auth/logout",
+            headers=headers,
+        )
+        assert first.status_code == 204
+
+        second = client.post(
+            "/api/v1/auth/logout",
+            headers=headers,
+        )
+        assert second.status_code == 204
+    finally:
+        _cleanup_user(user_id)

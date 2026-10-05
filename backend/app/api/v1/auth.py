@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -6,6 +7,7 @@ from app.schemas.auth import (
     DeviceRegistrationRequest,
     LoginRequest,
     LoginResponse,
+    CurrentUserResponse,
     RegistrationRequest,
     RegistrationResponse,
 )
@@ -13,6 +15,11 @@ from app.services.identity_login import (
     AuthenticationError,
     DeviceLoginInput,
     login_identity,
+)
+from app.services.session_authentication import (
+    SessionAuthenticationError,
+    authenticate_session,
+    revoke_session,
 )
 from app.services.identity_registration import (
     DeviceRegistrationInput,
@@ -24,6 +31,7 @@ from app.services.identity_registration import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+_bearer_scheme = HTTPBearer(auto_error=False)
 
 
 @router.post(
@@ -118,4 +126,56 @@ def login(
         session_id=result.session_id,
         session_token=result.session_token,
         session_expires_at=result.session_expires_at,
+    )
+
+
+@router.get(
+    "/me",
+    response_model=CurrentUserResponse,
+    status_code=status.HTTP_200_OK,
+)
+def me(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    db: Session = Depends(get_db),
+) -> CurrentUserResponse:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed.",
+        )
+
+    try:
+        authenticated = authenticate_session(
+            db,
+            session_token=credentials.credentials,
+        )
+    except SessionAuthenticationError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed.",
+        ) from None
+
+    return CurrentUserResponse(
+        user_id=authenticated.user_id,
+        status="active",
+    )
+
+
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def logout(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
+    db: Session = Depends(get_db),
+) -> None:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed.",
+        )
+
+    revoke_session(
+        db,
+        session_token=credentials.credentials,
     )
