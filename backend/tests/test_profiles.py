@@ -459,3 +459,284 @@ def test_profile_persists_in_database() -> None:
     finally:
         db.rollback()
         db.close()
+
+
+def test_profile_search_requires_authentication() -> None:
+    response = client.get(
+        "/api/v1/profiles/search",
+        params={"q": "alice"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_profile_search_finds_username_and_display_name() -> None:
+    _, viewer_token = _register()
+
+    _, alice_token = _register()
+    alice = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(alice_token),
+        json={
+            "username": "alice",
+            "display_name": "Alice Johnson",
+        },
+    )
+    assert alice.status_code == 201
+
+    _, bob_token = _register()
+    bob = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(bob_token),
+        json={
+            "username": "bob_builder",
+            "display_name": "The Builder",
+        },
+    )
+    assert bob.status_code == 201
+
+    response = client.get(
+        "/api/v1/profiles/search",
+        headers=_auth_header(viewer_token),
+        params={"q": "alice"},
+    )
+
+    assert response.status_code == 200
+    items = response.json()["items"]
+
+    assert len(items) == 1
+    assert items[0]["username"] == "alice"
+    assert items[0]["display_name"] == "Alice Johnson"
+
+
+def test_profile_search_matches_display_name_case_insensitively() -> None:
+    _, viewer_token = _register()
+
+    _, owner_token = _register()
+    created = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(owner_token),
+        json={
+            "username": "alice",
+            "display_name": "Alice Johnson",
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        "/api/v1/profiles/search",
+        headers=_auth_header(viewer_token),
+        params={"q": "JOHNSON"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["username"] == "alice"
+
+
+def test_profile_search_excludes_viewer() -> None:
+    user_id, token = _register()
+
+    created = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(token),
+        json={
+            "username": "alice",
+            "display_name": "Alice",
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        "/api/v1/profiles/search",
+        headers=_auth_header(token),
+        params={"q": "alice"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_profile_search_excludes_private_profiles() -> None:
+    _, viewer_token = _register()
+
+    _, owner_token = _register()
+    created = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(owner_token),
+        json={
+            "username": "alice",
+            "display_name": "Alice",
+            "visibility": "private",
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        "/api/v1/profiles/search",
+        headers=_auth_header(viewer_token),
+        params={"q": "alice"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_profile_search_excludes_inactive_users() -> None:
+    _, viewer_token = _register()
+
+    owner_id, owner_token = _register()
+    created = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(owner_token),
+        json={
+            "username": "alice",
+            "display_name": "Alice",
+        },
+    )
+    assert created.status_code == 201
+
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.id == owner_id).one()
+        user.status = "suspended"
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.get(
+        "/api/v1/profiles/search",
+        headers=_auth_header(viewer_token),
+        params={"q": "alice"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["items"] == []
+
+
+def test_profile_search_returns_deterministic_order() -> None:
+    _, viewer_token = _register()
+
+    for username in ("alice", "albert", "alex"):
+        _, token = _register()
+        created = client.post(
+            "/api/v1/profiles",
+            headers=_auth_header(token),
+            json={"username": username},
+        )
+        assert created.status_code == 201
+
+    response = client.get(
+        "/api/v1/profiles/search",
+        headers=_auth_header(viewer_token),
+        params={
+            "q": "al",
+            "limit": 50,
+        },
+    )
+
+    assert response.status_code == 200
+    assert [
+        item["username"]
+        for item in response.json()["items"]
+    ] == ["albert", "alex", "alice"]
+
+
+def test_profile_search_cursor_paginates() -> None:
+    _, viewer_token = _register()
+
+    for username in ("alice", "albert", "alex"):
+        _, token = _register()
+        created = client.post(
+            "/api/v1/profiles",
+            headers=_auth_header(token),
+            json={"username": username},
+        )
+        assert created.status_code == 201
+
+    first = client.get(
+        "/api/v1/profiles/search",
+        headers=_auth_header(viewer_token),
+        params={
+            "q": "al",
+            "limit": 2,
+        },
+    )
+
+    assert first.status_code == 200
+    first_body = first.json()
+
+    assert [
+        item["username"]
+        for item in first_body["items"]
+    ] == ["albert", "alex"]
+    assert first_body["next_cursor"]
+
+    second = client.get(
+        "/api/v1/profiles/search",
+        headers=_auth_header(viewer_token),
+        params={
+            "q": "al",
+            "limit": 2,
+            "cursor": first_body["next_cursor"],
+        },
+    )
+
+    assert second.status_code == 200
+    second_body = second.json()
+
+    assert [
+        item["username"]
+        for item in second_body["items"]
+    ] == ["alice"]
+    assert second_body["next_cursor"] is None
+
+
+def test_profile_search_rejects_invalid_input() -> None:
+    _, token = _register()
+
+    for params in (
+        {"q": ""},
+        {"q": "   "},
+        {"q": "a" * 101},
+        {"q": "alice", "limit": 0},
+        {"q": "alice", "limit": 51},
+        {"q": "alice", "cursor": "not-a-valid-cursor"},
+    ):
+        response = client.get(
+            "/api/v1/profiles/search",
+            headers=_auth_header(token),
+            params=params,
+        )
+
+        assert response.status_code == 400
+
+
+def test_profile_search_does_not_expose_authentication_fields() -> None:
+    _, viewer_token = _register()
+
+    _, owner_token = _register()
+    created = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(owner_token),
+        json={
+            "username": "alice",
+            "display_name": "Alice",
+        },
+    )
+    assert created.status_code == 201
+
+    response = client.get(
+        "/api/v1/profiles/search",
+        headers=_auth_header(viewer_token),
+        params={"q": "alice"},
+    )
+
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+
+    assert "email" not in item
+    assert "provider" not in item
+    assert "provider_subject" not in item
+    assert "session_token" not in item
+    assert "token_hash" not in item
+    assert "password_hash" not in item

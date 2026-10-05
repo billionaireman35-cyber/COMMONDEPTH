@@ -1,3 +1,6 @@
+import base64
+import binascii
+import json
 import re
 from uuid import UUID
 
@@ -16,6 +19,10 @@ MAX_AVATAR_LENGTH = 2048
 MAX_BANNER_LENGTH = 2048
 MAX_BIOGRAPHY_LENGTH = 5000
 MAX_LOCATION_LENGTH = 160
+
+SEARCH_DEFAULT_LIMIT = 20
+SEARCH_MAX_LIMIT = 50
+SEARCH_MAX_QUERY_LENGTH = 100
 
 
 class ProfileError(Exception):
@@ -36,6 +43,10 @@ class UsernameAlreadyExistsError(ProfileError):
 
 class ProfileNotFoundError(ProfileError):
     """Raised when a requested profile does not exist."""
+
+
+class InvalidProfileSearchError(ProfileError):
+    """Raised when profile search input or cursor is invalid."""
 
 
 def normalize_username(username: str) -> str:
@@ -315,3 +326,115 @@ def get_profile_by_username(
         raise ProfileNotFoundError("Profile not found.")
 
     return profile
+
+def _encode_profile_search_cursor(
+    *,
+    username: str,
+    profile_id: UUID,
+) -> str:
+    payload = {
+        "username": username,
+        "id": str(profile_id),
+    }
+    encoded = base64.urlsafe_b64encode(
+        json.dumps(
+            payload,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).decode("ascii")
+    return encoded.rstrip("=")
+
+
+def _decode_profile_search_cursor(
+    cursor: str,
+) -> tuple[str, UUID]:
+    if not cursor:
+        raise InvalidProfileSearchError("Invalid search cursor.")
+
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        decoded = base64.urlsafe_b64decode(
+            (cursor + padding).encode("ascii")
+        )
+        payload = json.loads(decoded.decode("utf-8"))
+
+        if not isinstance(payload, dict):
+            raise ValueError
+
+        username = payload.get("username")
+        profile_id = payload.get("id")
+
+        if not isinstance(username, str):
+            raise ValueError
+
+        normalized_username = normalize_username(username)
+        parsed_profile_id = UUID(profile_id)
+
+        return normalized_username, parsed_profile_id
+    except (
+        binascii.Error,
+        ValueError,
+        TypeError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+    ):
+        raise InvalidProfileSearchError(
+            "Invalid search cursor."
+        ) from None
+
+
+def search_profiles(
+    db: Session,
+    *,
+    query: str,
+    viewer_user_id: UUID,
+    limit: int = SEARCH_DEFAULT_LIMIT,
+    cursor: str | None = None,
+) -> tuple[list[Profile], str | None]:
+    if not isinstance(query, str):
+        raise InvalidProfileSearchError("Invalid search query.")
+
+    normalized_query = query.strip()
+
+    if not normalized_query:
+        raise InvalidProfileSearchError("Search query cannot be empty.")
+
+    if len(normalized_query) > SEARCH_MAX_QUERY_LENGTH:
+        raise InvalidProfileSearchError(
+            "Search query exceeds the maximum length."
+        )
+
+    if limit < 1 or limit > SEARCH_MAX_LIMIT:
+        raise InvalidProfileSearchError("Invalid search limit.")
+
+    cursor_username = None
+    cursor_profile_id = None
+
+    if cursor is not None:
+        (
+            cursor_username,
+            cursor_profile_id,
+        ) = _decode_profile_search_cursor(cursor)
+
+    repository = ProfileRepository(db)
+
+    profiles = repository.search_public_profiles(
+        query=normalized_query,
+        viewer_user_id=viewer_user_id,
+        limit=limit + 1,
+        cursor_username=cursor_username,
+        cursor_profile_id=cursor_profile_id,
+    )
+
+    next_cursor = None
+
+    if len(profiles) > limit:
+        profiles = profiles[:limit]
+        last_profile = profiles[-1]
+        next_cursor = _encode_profile_search_cursor(
+            username=last_profile.username,
+            profile_id=last_profile.id,
+        )
+
+    return profiles, next_cursor

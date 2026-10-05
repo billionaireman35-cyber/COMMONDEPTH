@@ -42,3 +42,21 @@ class ProfileResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+class ProfileSearchItem(BaseModel):
+    id: UUID
+    user_id: UUID
+    username: str
+    display_name: str | None
+    avatar: str | None
+    banner: str | None
+    biography: str | None
+    location: str | None
+    visibility: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProfileSearchResponse(BaseModel):
+    items: list[ProfileSearchItem]
+    next_cursor: str | None = None

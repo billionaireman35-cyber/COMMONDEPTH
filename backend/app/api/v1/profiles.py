@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.schemas.profile import (
     ProfileCreateRequest,
     ProfileResponse,
+    ProfileSearchResponse,
     ProfileUpdateRequest,
 )
 from app.services.profile import (
@@ -16,10 +17,12 @@ from app.services.profile import (
     ProfileAlreadyExistsError,
     ProfileError,
     ProfileNotFoundError,
+    InvalidProfileSearchError,
     UsernameAlreadyExistsError,
     create_profile,
     get_my_profile,
     get_profile_by_username,
+    search_profiles,
     update_profile,
     _UNSET,
 )
@@ -185,6 +188,40 @@ def update_me(
         ) from None
 
     return ProfileResponse.model_validate(profile)
+
+
+@router.get(
+    "/search",
+    response_model=ProfileSearchResponse,
+    status_code=status.HTTP_200_OK,
+)
+def search(
+    q: str,
+    limit: int = 20,
+    cursor: str | None = None,
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+) -> ProfileSearchResponse:
+    try:
+        profiles, next_cursor = search_profiles(
+            db,
+            query=q,
+            viewer_user_id=authenticated.user_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidProfileSearchError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from None
+
+    return ProfileSearchResponse(
+        items=profiles,
+        next_cursor=next_cursor,
+    )
 
 
 @router.get(
