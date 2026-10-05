@@ -231,3 +231,154 @@ def test_invalid_device_platform_returns_bad_request() -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Invalid device platform."
+
+
+def test_login_endpoint_authenticates_existing_email_identity() -> None:
+    email = _email()
+    password = "CommonDepth-Test-Password-2026!"
+
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+
+    assert registration.status_code == 201
+    user_id = registration.json()["user_id"]
+
+    try:
+        response = client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": f"  {email.upper()}  ",
+                "password": password,
+            },
+        )
+
+        assert response.status_code == 200
+
+        body = response.json()
+
+        assert set(body) == {
+            "user_id",
+            "session_id",
+            "session_token",
+            "session_expires_at",
+        }
+        assert body["user_id"] == user_id
+        assert body["session_token"]
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_login_endpoint_wrong_password_returns_generic_unauthorized() -> None:
+    email = _email()
+    password = "CommonDepth-Test-Password-2026!"
+
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+
+    assert registration.status_code == 201
+    user_id = registration.json()["user_id"]
+
+    try:
+        response = client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": email,
+                "password": "Definitely-Wrong-Password-2026!",
+            },
+        )
+
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Authentication failed."
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_login_endpoint_unknown_email_returns_same_generic_unauthorized() -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": _email(),
+            "password": "CommonDepth-Test-Password-2026!",
+        },
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication failed."
+
+
+def test_login_endpoint_creates_optional_device() -> None:
+    email = _email()
+    password = "CommonDepth-Test-Password-2026!"
+
+    registration = client.post(
+        "/api/v1/auth/register",
+        json={
+            "email": email,
+            "password": password,
+        },
+    )
+
+    assert registration.status_code == 201
+    user_id = registration.json()["user_id"]
+
+    try:
+        response = client.post(
+            "/api/v1/auth/login",
+            json={
+                "email": email,
+                "password": password,
+                "device": {
+                    "platform": "android",
+                    "name": "CommonDepth Login Device",
+                    "device_identifier_hash": "login-device-hash",
+                },
+            },
+        )
+
+        assert response.status_code == 200
+
+        body = response.json()
+
+        db = SessionLocal()
+        try:
+            device = db.scalar(
+                select(Device).where(
+                    Device.user_id == user_id,
+                )
+            )
+
+            assert device is not None
+            assert device.platform == "android"
+            assert device.name == "CommonDepth Login Device"
+            assert device.device_identifier_hash == "login-device-hash"
+
+            session = db.get(IdentitySession, body["session_id"])
+            assert session is not None
+            assert session.device_id == device.id
+        finally:
+            db.close()
+    finally:
+        _cleanup_user(user_id)
+
+
+def test_login_endpoint_rejects_extra_field() -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={
+            "email": _email(),
+            "password": "CommonDepth-Test-Password-2026!",
+            "unexpected": "value",
+        },
+    )
+
+    assert response.status_code == 422

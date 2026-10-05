@@ -4,8 +4,15 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.schemas.auth import (
     DeviceRegistrationRequest,
+    LoginRequest,
+    LoginResponse,
     RegistrationRequest,
     RegistrationResponse,
+)
+from app.services.identity_login import (
+    AuthenticationError,
+    DeviceLoginInput,
+    login_identity,
 )
 from app.services.identity_registration import (
     DeviceRegistrationInput,
@@ -67,6 +74,46 @@ def register(
         ) from None
 
     return RegistrationResponse(
+        user_id=result.user_id,
+        session_id=result.session_id,
+        session_token=result.session_token,
+        session_expires_at=result.session_expires_at,
+    )
+
+
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+    status_code=status.HTTP_200_OK,
+)
+def login(
+    request: LoginRequest,
+    db: Session = Depends(get_db),
+) -> LoginResponse:
+    device = (
+        DeviceLoginInput(
+            platform=request.device.platform,
+            name=request.device.name,
+            device_identifier_hash=request.device.device_identifier_hash,
+        )
+        if request.device is not None
+        else None
+    )
+
+    try:
+        result = login_identity(
+            db,
+            email=request.email,
+            password=request.password,
+            device=device,
+        )
+    except AuthenticationError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed.",
+        ) from None
+
+    return LoginResponse(
         user_id=result.user_id,
         session_id=result.session_id,
         session_token=result.session_token,
