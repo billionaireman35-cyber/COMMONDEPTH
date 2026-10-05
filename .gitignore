@@ -1,0 +1,67 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+env/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+credentials/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Frontend builds
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+
+# Backend/runtime artifacts
+backend/.pytest_cache/
+backend/htmlcov/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Local databases / development artifacts
+*.sqlite
+*.sqlite3
+
+# Generated reports
+coverage/
+reports/
+
+# Local PostgreSQL development cluster
+.postgres/
+
+commondepth_identity.sql
