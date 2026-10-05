@@ -14,4 +14,7 @@ __all__ = [
     "Session",
     "User",
     "UserIdentity",
+    "Profile",
 ]
+
+from app.models.profile import Profile
