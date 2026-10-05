@@ -336,7 +336,7 @@ def test_public_profile_can_be_viewed_anonymously() -> None:
     assert response.json()["username"] == "alice"
 
 
-def test_private_profile_is_hidden_from_anonymous_viewer() -> None:
+def test_private_profile_is_discoverable_to_anonymous_viewer() -> None:
     _, token = _register()
 
     created = client.post(
@@ -344,6 +344,11 @@ def test_private_profile_is_hidden_from_anonymous_viewer() -> None:
         headers=_auth_header(token),
         json={
             "username": "alice",
+            "display_name": "Alice",
+            "avatar": "https://example.com/avatar.png",
+            "banner": "https://example.com/banner.png",
+            "biography": "Private biography",
+            "location": "Private location",
             "visibility": "private",
         },
     )
@@ -351,8 +356,16 @@ def test_private_profile_is_hidden_from_anonymous_viewer() -> None:
 
     response = client.get("/api/v1/profiles/alice")
 
-    assert response.status_code == 404
+    assert response.status_code == 200
 
+    body = response.json()
+    assert body["username"] == "alice"
+    assert body["display_name"] == "Alice"
+    assert body["avatar"] == "https://example.com/avatar.png"
+    assert body["visibility"] == "private"
+    assert "banner" not in body
+    assert "biography" not in body
+    assert "location" not in body
 
 def test_private_profile_is_visible_to_owner() -> None:
     _, token = _register()
@@ -376,7 +389,7 @@ def test_private_profile_is_visible_to_owner() -> None:
     assert response.json()["username"] == "alice"
 
 
-def test_private_profile_is_hidden_from_other_user() -> None:
+def test_private_profile_is_discoverable_to_other_user() -> None:
     _, owner_token = _register()
     _, viewer_token = _register()
 
@@ -385,6 +398,9 @@ def test_private_profile_is_hidden_from_other_user() -> None:
         headers=_auth_header(owner_token),
         json={
             "username": "alice",
+            "display_name": "Alice",
+            "biography": "Private biography",
+            "location": "Private location",
             "visibility": "private",
         },
     )
@@ -395,8 +411,14 @@ def test_private_profile_is_hidden_from_other_user() -> None:
         headers=_auth_header(viewer_token),
     )
 
-    assert response.status_code == 404
+    assert response.status_code == 200
 
+    body = response.json()
+    assert body["username"] == "alice"
+    assert body["display_name"] == "Alice"
+    assert body["visibility"] == "private"
+    assert "biography" not in body
+    assert "location" not in body
 
 def test_unknown_profile_returns_not_found() -> None:
     response = client.get(
@@ -556,7 +578,7 @@ def test_profile_search_excludes_viewer() -> None:
     assert response.json()["items"] == []
 
 
-def test_profile_search_excludes_private_profiles() -> None:
+def test_profile_search_includes_private_profiles_without_private_fields() -> None:
     _, viewer_token = _register()
 
     _, owner_token = _register()
@@ -566,6 +588,9 @@ def test_profile_search_excludes_private_profiles() -> None:
         json={
             "username": "alice",
             "display_name": "Alice",
+            "banner": "https://example.com/banner.png",
+            "biography": "Private biography",
+            "location": "Private location",
             "visibility": "private",
         },
     )
@@ -578,8 +603,15 @@ def test_profile_search_excludes_private_profiles() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["items"] == []
 
+    items = response.json()["items"]
+    assert len(items) == 1
+    assert items[0]["username"] == "alice"
+    assert items[0]["display_name"] == "Alice"
+    assert items[0]["visibility"] == "private"
+    assert "banner" not in items[0]
+    assert "biography" not in items[0]
+    assert "location" not in items[0]
 
 def test_profile_search_excludes_inactive_users() -> None:
     _, viewer_token = _register()

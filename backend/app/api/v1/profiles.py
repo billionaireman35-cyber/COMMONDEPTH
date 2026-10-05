@@ -8,6 +8,7 @@ from app.api.dependencies import get_authenticated_session
 from app.core.database import get_db
 from app.schemas.profile import (
     ProfileCreateRequest,
+    ProfileDiscoveryResponse,
     ProfileResponse,
     ProfileSearchResponse,
     ProfileUpdateRequest,
@@ -226,7 +227,7 @@ def search(
 
 @router.get(
     "/{username}",
-    response_model=ProfileResponse,
+    response_model=ProfileResponse | ProfileDiscoveryResponse,
     status_code=status.HTTP_200_OK,
 )
 def get_by_username(
@@ -254,5 +255,11 @@ def get_by_username(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Profile not found.",
         ) from None
+
+    if (
+        profile.visibility == "private"
+        and profile.user_id != viewer_user_id
+    ):
+        return ProfileDiscoveryResponse.model_validate(profile)
 
     return ProfileResponse.model_validate(profile)

@@ -29,7 +29,7 @@ class ProfileRepository:
         return profile
 
 
-    def search_public_profiles(
+    def search_profiles(
         self,
         *,
         query: str,
@@ -45,7 +45,6 @@ class ProfileRepository:
             .join(User, User.id == Profile.user_id)
             .where(
                 User.status == "active",
-                Profile.visibility == "public",
                 Profile.user_id != viewer_user_id,
                 or_(
                     Profile.username.startswith(

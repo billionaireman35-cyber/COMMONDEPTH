@@ -43,18 +43,19 @@ class ProfileResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-class ProfileSearchItem(BaseModel):
+class ProfileDiscoveryResponse(BaseModel):
     id: UUID
     user_id: UUID
     username: str
     display_name: str | None
     avatar: str | None
-    banner: str | None
-    biography: str | None
-    location: str | None
     visibility: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProfileSearchItem(ProfileDiscoveryResponse):
+    pass
 
 
 class ProfileSearchResponse(BaseModel):

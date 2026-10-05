@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.profiles import router as profiles_router
+from app.api.v1.social import router as social_router
 from app.core.config import get_settings
 
 settings = get_settings()
@@ -18,5 +19,10 @@ app.include_router(
 
 app.include_router(
     profiles_router,
+    prefix=settings.api_v1_prefix,
+)
+
+app.include_router(
+    social_router,
     prefix=settings.api_v1_prefix,
 )

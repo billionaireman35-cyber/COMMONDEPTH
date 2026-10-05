@@ -15,6 +15,10 @@ __all__ = [
     "User",
     "UserIdentity",
     "Profile",
+    "Follow",
+    "FollowRequest",
 ]
 
 from app.models.profile import Profile
+
+from app.models.social import Follow, FollowRequest

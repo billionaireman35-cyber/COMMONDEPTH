@@ -322,17 +322,16 @@ def get_profile_by_username(
     if profile is None:
         raise ProfileNotFoundError("Profile not found.")
 
-    if profile.visibility == "private" and profile.user_id != viewer_user_id:
-        raise ProfileNotFoundError("Profile not found.")
-
     return profile
 
 def _encode_profile_search_cursor(
     *,
+    query: str,
     username: str,
     profile_id: UUID,
 ) -> str:
     payload = {
+        "q": query,
         "username": username,
         "id": str(profile_id),
     }
@@ -348,6 +347,8 @@ def _encode_profile_search_cursor(
 
 def _decode_profile_search_cursor(
     cursor: str,
+    *,
+    query: str,
 ) -> tuple[str, UUID]:
     if not cursor:
         raise InvalidProfileSearchError("Invalid search cursor.")
@@ -362,8 +363,15 @@ def _decode_profile_search_cursor(
         if not isinstance(payload, dict):
             raise ValueError
 
+        cursor_query = payload.get("q")
         username = payload.get("username")
         profile_id = payload.get("id")
+
+        if not isinstance(cursor_query, str):
+            raise ValueError
+
+        if cursor_query != query:
+            raise ValueError
 
         if not isinstance(username, str):
             raise ValueError
@@ -415,11 +423,14 @@ def search_profiles(
         (
             cursor_username,
             cursor_profile_id,
-        ) = _decode_profile_search_cursor(cursor)
+        ) = _decode_profile_search_cursor(
+            cursor,
+            query=normalized_query,
+        )
 
     repository = ProfileRepository(db)
 
-    profiles = repository.search_public_profiles(
+    profiles = repository.search_profiles(
         query=normalized_query,
         viewer_user_id=viewer_user_id,
         limit=limit + 1,
@@ -433,6 +444,7 @@ def search_profiles(
         profiles = profiles[:limit]
         last_profile = profiles[-1]
         next_cursor = _encode_profile_search_cursor(
+            query=normalized_query,
             username=last_profile.username,
             profile_id=last_profile.id,
         )
