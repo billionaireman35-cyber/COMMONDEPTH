@@ -7,9 +7,15 @@ from app.schemas.auth import (
     DeviceRegistrationRequest,
     LoginRequest,
     LoginResponse,
+    GoogleLoginRequest,
+    GoogleLoginResponse,
     CurrentUserResponse,
     RegistrationRequest,
     RegistrationResponse,
+)
+from app.services.google_login import (
+    GoogleAuthenticationError,
+    login_with_google,
 )
 from app.services.identity_login import (
     AuthenticationError,
@@ -122,6 +128,34 @@ def login(
         ) from None
 
     return LoginResponse(
+        user_id=result.user_id,
+        session_id=result.session_id,
+        session_token=result.session_token,
+        session_expires_at=result.session_expires_at,
+    )
+
+
+@router.post(
+    "/google",
+    response_model=GoogleLoginResponse,
+    status_code=status.HTTP_200_OK,
+)
+def google_login(
+    request: GoogleLoginRequest,
+    db: Session = Depends(get_db),
+) -> GoogleLoginResponse:
+    try:
+        result = login_with_google(
+            db,
+            id_token_value=request.id_token,
+        )
+    except GoogleAuthenticationError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed.",
+        ) from None
+
+    return GoogleLoginResponse(
         user_id=result.user_id,
         session_id=result.session_id,
         session_token=result.session_token,

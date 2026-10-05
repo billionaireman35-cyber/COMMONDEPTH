@@ -45,3 +45,16 @@ class LoginResponse(BaseModel):
 class CurrentUserResponse(BaseModel):
     user_id: UUID
     status: str
+
+
+class GoogleLoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id_token: str
+
+
+class GoogleLoginResponse(BaseModel):
+    user_id: UUID
+    session_id: UUID
+    session_token: str
+    session_expires_at: datetime

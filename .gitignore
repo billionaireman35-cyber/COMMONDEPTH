@@ -65,3 +65,5 @@ reports/
 .postgres/
 
 commondepth_identity.sql
+
+backend/.env

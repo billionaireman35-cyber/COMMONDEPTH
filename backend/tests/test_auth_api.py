@@ -1,5 +1,7 @@
 from uuid import uuid4
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
@@ -518,3 +520,65 @@ def test_logout_endpoint_is_idempotent_for_revoked_session() -> None:
         assert second.status_code == 204
     finally:
         _cleanup_user(user_id)
+
+
+def test_google_login_endpoint_authenticates_existing_google_identity() -> None:
+    from unittest.mock import patch
+
+    from app.services.google_login import GoogleLoginResult
+
+    result = GoogleLoginResult(
+        user_id=uuid4(),
+        session_id=uuid4(),
+        session_token="google-session-token",
+        session_expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+
+    with patch(
+        "app.api.v1.auth.login_with_google",
+        return_value=result,
+    ) as login:
+        response = client.post(
+            "/api/v1/auth/google",
+            json={"id_token": "valid-google-token"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "user_id": str(result.user_id),
+        "session_id": str(result.session_id),
+        "session_token": "google-session-token",
+        "session_expires_at": result.session_expires_at.isoformat().replace("+00:00", "Z"),
+    }
+
+    login.assert_called_once()
+
+
+def test_google_login_endpoint_returns_generic_401_on_authentication_failure() -> None:
+    from unittest.mock import patch
+
+    from app.services.google_login import GoogleAuthenticationError
+
+    with patch(
+        "app.api.v1.auth.login_with_google",
+        side_effect=GoogleAuthenticationError("Authentication failed."),
+    ):
+        response = client.post(
+            "/api/v1/auth/google",
+            json={"id_token": "invalid-google-token"},
+        )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Authentication failed."
+
+
+def test_google_login_endpoint_rejects_extra_fields() -> None:
+    response = client.post(
+        "/api/v1/auth/google",
+        json={
+            "id_token": "valid-google-token",
+            "email": "unexpected@example.invalid",
+        },
+    )
+
+    assert response.status_code == 422
