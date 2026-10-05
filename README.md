@@ -10,7 +10,7 @@ COMMONDEPTH is a global social network built by Goldx Technologies.
 
 COMMONDEPTH is designed as a social, communication, publishing, discovery, and community platform. Cryptocurrency and blockchain capabilities are optional infrastructure for appropriate value, payment, ownership, and settlement use cases.
 
-Users must be able to use the core social network without owning a wallet or purchasing a token.
+Users will be able to use the core social network without optionally owning a wallet or purchasing a token.
 
 ## Engineering Principles
 
