@@ -67,3 +67,8 @@ reports/
 commondepth_identity.sql
 
 backend/.env
+
+# Local backup / audit artifacts
+*.backup-*
+*.backup.*
+*.backup*/

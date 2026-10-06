@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     database_url: str
     google_client_id: str | None = None
+    onboarding_curated_usernames: str = ""
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[3] / ".env",
