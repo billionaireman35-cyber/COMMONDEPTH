@@ -1,6 +1,7 @@
 import base64
 import binascii
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -8,8 +9,18 @@ from sqlalchemy.orm import Session
 
 from app.models.content import Post
 from app.repositories.content import ContentRepository
+from app.repositories.engagement import (
+    EngagementRepository,
+    PostEngagementSummary,
+)
 from app.repositories.identity import IdentityRepository
 from app.repositories.social import SocialRepository
+
+
+@dataclass(frozen=True)
+class PostReadModel:
+    post: Post
+    engagement: PostEngagementSummary
 
 
 class ContentError(Exception):
@@ -223,6 +234,57 @@ def get_post(
 
     return post
 
+
+
+def get_post_read_model(
+    db: Session,
+    *,
+    post_id: UUID,
+    viewer_user_id: UUID,
+) -> PostReadModel:
+    post = get_post(
+        db,
+        post_id=post_id,
+        viewer_user_id=viewer_user_id,
+    )
+    engagement = EngagementRepository(db).get_post_engagement_summaries(
+        post_ids=[post.id],
+        viewer_user_id=viewer_user_id,
+    )[post.id]
+    return PostReadModel(
+        post=post,
+        engagement=engagement,
+    )
+
+
+def list_posts_by_author_read_model(
+    db: Session,
+    *,
+    author_id: UUID,
+    viewer_user_id: UUID,
+    limit: int = POST_DEFAULT_LIMIT,
+    cursor: str | None = None,
+) -> tuple[list[PostReadModel], str | None]:
+    posts, next_cursor = list_posts_by_author(
+        db,
+        author_id=author_id,
+        viewer_user_id=viewer_user_id,
+        limit=limit,
+        cursor=cursor,
+    )
+
+    summaries = EngagementRepository(db).get_post_engagement_summaries(
+        post_ids=[post.id for post in posts],
+        viewer_user_id=viewer_user_id,
+    )
+
+    return [
+        PostReadModel(
+            post=post,
+            engagement=summaries[post.id],
+        )
+        for post in posts
+    ], next_cursor
 
 
 def delete_post(
