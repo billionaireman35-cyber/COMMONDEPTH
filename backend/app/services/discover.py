@@ -18,8 +18,8 @@ class InvalidDiscoverListError(DiscoverError):
     pass
 
 
-DISCOVER_DEFAULT_LIMIT = 20
-DISCOVER_MAX_LIMIT = 50
+DISCOVER_DEFAULT_LIMIT = 1000
+DISCOVER_MAX_LIMIT = 1000
 
 
 def _encode_discover_cursor(

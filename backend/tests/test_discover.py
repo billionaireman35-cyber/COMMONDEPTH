@@ -194,7 +194,7 @@ def test_discover_repository_cursor_returns_next_page() -> None:
 def test_discover_service_returns_default_page_and_cursor() -> None:
     _, author_token = _register()
 
-    for index in range(21):
+    for index in range(1001):
         _create_post(
             author_token,
             content=f"Post {index}",
@@ -206,9 +206,9 @@ def test_discover_service_returns_default_page_and_cursor() -> None:
     finally:
         db.close()
 
-    assert len(posts) == 20
+    assert len(posts) == 1000
     assert next_cursor is not None
-    assert posts[0].content == "Post 20"
+    assert posts[0].content == "Post 1000"
     assert posts[-1].content == "Post 1"
 
 
@@ -249,7 +249,7 @@ def test_discover_service_rejects_invalid_limit() -> None:
             list_discover_posts(db, limit=0)
 
         with pytest.raises(InvalidDiscoverListError):
-            list_discover_posts(db, limit=51)
+            list_discover_posts(db, limit=1001)
     finally:
         db.close()
 

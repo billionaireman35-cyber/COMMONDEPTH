@@ -3,6 +3,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.integrations.media_storage.supabase import get_supabase_s3_storage
+from app.integrations.media_storage import MediaStorage
 from app.services.session_authentication import (
     AuthenticatedSession,
     SessionAuthenticationError,
@@ -32,3 +34,8 @@ def get_authenticated_session(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication failed.",
         ) from None
+
+
+def get_media_storage() -> MediaStorage:
+    """Return the configured MediaStorage implementation."""
+    return get_supabase_s3_storage()

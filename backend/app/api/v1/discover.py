@@ -17,7 +17,7 @@ router = APIRouter(prefix="/discover", tags=["discover"])
 
 @router.get("", response_model=DiscoverListResponse)
 def discover(
-    limit: int = 20,
+    limit: int = 1000,
     cursor: str | None = None,
     authenticated: AuthenticatedSession = Depends(
         get_authenticated_session

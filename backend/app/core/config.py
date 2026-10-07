@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     google_client_id: str | None = None
     onboarding_curated_usernames: str = ""
 
+    media_storage_provider: str = "supabase"
+    supabase_s3_endpoint: str
+    supabase_s3_region: str = "eu-west-1"
+    supabase_s3_access_key: str
+    supabase_s3_secret_key: str
+    supabase_s3_bucket: str = "common"
+
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[3] / ".env",
         env_file_encoding="utf-8",
