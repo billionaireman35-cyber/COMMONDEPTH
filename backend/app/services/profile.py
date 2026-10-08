@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.profile import Profile
 from app.repositories.profile import ProfileRepository
 
-USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{2,29}$")
+USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{1,29}$")
 
 VISIBILITIES = {"public", "private"}
 
@@ -57,7 +57,7 @@ def normalize_username(username: str) -> str:
 
     if not USERNAME_PATTERN.fullmatch(normalized):
         raise InvalidProfileInputError(
-            "Username must be 3-30 characters, start with a letter, "
+            "Username must be 2-30 characters, start with a letter, "
             "and contain only letters, numbers, and underscores."
         )
 

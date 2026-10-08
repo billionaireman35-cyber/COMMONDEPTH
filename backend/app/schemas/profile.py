@@ -38,6 +38,7 @@ class ProfileResponse(BaseModel):
     biography: str | None
     location: str | None
     visibility: str
+    verified_at: datetime | None
     created_at: datetime
     updated_at: datetime
 

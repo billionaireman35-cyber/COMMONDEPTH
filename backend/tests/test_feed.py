@@ -14,6 +14,7 @@ from app.models.identity import User
 from app.models.profile import Profile
 from app.models.social import Follow
 from app.repositories.feed import FeedRepository
+from app.core.config import get_settings
 from app.services.feed import InvalidFeedListError, list_feed_posts
 
 
@@ -323,6 +324,154 @@ def test_feed_repository_cursor_returns_next_page() -> None:
     assert len(second_page) == 1
     assert second_page[0].content == "Post 0"
 
+
+
+def test_feed_repository_returns_configured_editorial_posts() -> None:
+    viewer_id, _ = _register()
+    _, editorial_token = _register()
+
+    _create_profile(editorial_token, "commondepth")
+    editorial_post = _create_post(
+        editorial_token,
+        content="COMMONDEPTH editorial post.",
+    )
+
+    settings = get_settings()
+    settings.feed_editorial_usernames = "commondepth"
+
+    db = _db()
+    try:
+        posts = FeedRepository(db).list_editorial_posts(
+            editorial_usernames=["commondepth"],
+            limit=20,
+        )
+    finally:
+        db.close()
+
+    assert [post.id for post in posts] == [
+        UUID(editorial_post["id"]),
+    ]
+    assert posts[0].author_id != UUID(viewer_id)
+
+
+def test_feed_service_merges_editorial_and_followed_posts_chronologically() -> None:
+    viewer_id, viewer_token = _register()
+
+    _, followed_token = _register()
+    _, editorial_token = _register()
+
+    _create_profile(followed_token, "alice")
+    _create_profile(editorial_token, "commondepth")
+
+    _follow(viewer_token, "alice")
+
+    followed_post = _create_post(
+        followed_token,
+        content="Followed post.",
+    )
+    editorial_post = _create_post(
+        editorial_token,
+        content="Editorial post.",
+    )
+
+    settings = get_settings()
+    settings.feed_editorial_usernames = "commondepth"
+
+    db = _db()
+    try:
+        posts, next_cursor = list_feed_posts(
+            db,
+            viewer_user_id=UUID(viewer_id),
+            limit=20,
+        )
+    finally:
+        db.close()
+
+    assert next_cursor is None
+    assert [post.id for post in posts] == [
+        UUID(editorial_post["id"]),
+        UUID(followed_post["id"]),
+    ]
+
+
+def test_feed_service_deduplicates_followed_editorial_author_posts() -> None:
+    viewer_id, viewer_token = _register()
+    _, author_token = _register()
+
+    _create_profile(author_token, "commondepth")
+    _follow(viewer_token, "commondepth")
+
+    post = _create_post(
+        author_token,
+        content="Editorial post also followed.",
+    )
+
+    settings = get_settings()
+    settings.feed_editorial_usernames = "commondepth"
+
+    db = _db()
+    try:
+        posts, _ = list_feed_posts(
+            db,
+            viewer_user_id=UUID(viewer_id),
+            limit=20,
+        )
+    finally:
+        db.close()
+
+    matching_posts = [
+        item for item in posts if item.id == UUID(post["id"])
+    ]
+
+    assert len(matching_posts) == 1
+
+
+def test_feed_repository_excludes_inactive_and_followers_only_editorial_posts() -> None:
+    viewer_id, _ = _register()
+
+    _, inactive_token = _register()
+    _, followers_token = _register()
+
+    _create_profile(inactive_token, "inactive_editorial")
+    _create_profile(followers_token, "followers_editorial")
+
+    _create_post(
+        inactive_token,
+        content="Inactive editorial post.",
+    )
+    _create_post(
+        followers_token,
+        content="Followers-only editorial post.",
+        visibility="followers",
+    )
+
+    settings = get_settings()
+    settings.feed_editorial_usernames = (
+        "inactive_editorial,followers_editorial"
+    )
+
+    db = _db()
+    try:
+        inactive_profile = db.query(Profile).filter(
+            Profile.username == "inactive_editorial"
+        ).one()
+        inactive_author = db.get(User, inactive_profile.user_id)
+        assert inactive_author is not None
+        inactive_author.status = "suspended"
+        db.commit()
+
+        posts = FeedRepository(db).list_editorial_posts(
+            editorial_usernames=[
+                "inactive_editorial",
+                "followers_editorial",
+            ],
+            limit=20,
+        )
+    finally:
+        db.close()
+
+    assert viewer_id
+    assert posts == []
 
 def test_feed_service_returns_default_page_and_next_cursor() -> None:
     viewer_id, viewer_token = _register()

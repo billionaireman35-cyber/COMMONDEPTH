@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     database_url: str
     google_client_id: str | None = None
     onboarding_curated_usernames: str = ""
+    feed_editorial_usernames: str = ""
 
     media_storage_provider: str = "supabase"
     supabase_s3_endpoint: str

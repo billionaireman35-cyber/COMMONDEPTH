@@ -9,6 +9,10 @@ from app.main import app
 from app.models.identity import Session as IdentitySession
 from app.models.identity import User
 from app.models.profile import Profile
+from app.services.profile_verification import (
+    ProfileNotFoundForVerificationError,
+    verify_profile,
+)
 
 
 client = TestClient(app)
@@ -53,6 +57,19 @@ def _auth_header(session_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {session_token}"}
 
 
+def test_create_profile_accepts_two_character_username() -> None:
+    _, token = _register()
+
+    response = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(token),
+        json={"username": "ai"},
+    )
+
+    assert response.status_code == 201
+    assert response.json()["username"] == "ai"
+
+
 def test_create_profile_normalizes_username() -> None:
     user_id, token = _register()
 
@@ -78,7 +95,6 @@ def test_create_profile_rejects_invalid_username() -> None:
     _, token = _register()
 
     for username in (
-        "ab",
         "a" * 31,
         "1alice",
         "alice-name",
@@ -772,3 +788,90 @@ def test_profile_search_does_not_expose_authentication_fields() -> None:
     assert "session_token" not in item
     assert "token_hash" not in item
     assert "password_hash" not in item
+
+def test_profile_verification_is_read_only_and_defaults_to_unverified() -> None:
+    _, token = _register()
+
+    created = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(token),
+        json={
+            "username": "alice",
+            "display_name": "Alice",
+        },
+    )
+
+    assert created.status_code == 201
+    body = created.json()
+
+    assert body["verified_at"] is None
+
+    attempted_verification = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(token),
+        json={
+            "username": "alice2",
+            "verified_at": "2026-10-08T00:00:00Z",
+        },
+    )
+
+    assert attempted_verification.status_code == 422
+
+
+
+def test_profile_verification_service_marks_profile_verified() -> None:
+    user_id, token = _register()
+
+    created = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(token),
+        json={
+            "username": "verified_user",
+            "display_name": "Verified User",
+        },
+    )
+
+    assert created.status_code == 201
+    assert created.json()["verified_at"] is None
+
+    db = _db()
+    try:
+        verified = verify_profile(
+            db,
+            user_id=user_id,
+        )
+        assert verified.verified_at is not None
+        first_verified_at = verified.verified_at
+    finally:
+        db.close()
+
+    db = _db()
+    try:
+        profile = db.query(Profile).filter(Profile.user_id == user_id).one()
+        assert profile.verified_at == first_verified_at
+    finally:
+        db.close()
+
+    db = _db()
+    try:
+        verified_again = verify_profile(
+            db,
+            user_id=user_id,
+        )
+        assert verified_again.verified_at == first_verified_at
+    finally:
+        db.close()
+
+
+def test_profile_verification_service_rejects_missing_profile() -> None:
+    user_id, _ = _register()
+
+    db = _db()
+    try:
+        with pytest.raises(ProfileNotFoundForVerificationError):
+            verify_profile(
+                db,
+                user_id=user_id,
+            )
+    finally:
+        db.close()

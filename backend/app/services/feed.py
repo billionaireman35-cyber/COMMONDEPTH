@@ -6,6 +6,8 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
+
 from app.models.content import Post
 from app.integrations.media_storage import MediaStorage
 from app.repositories.engagement import EngagementRepository
@@ -26,6 +28,36 @@ class InvalidFeedListError(FeedError):
 
 FEED_DEFAULT_LIMIT = 20
 FEED_MAX_LIMIT = 50
+
+
+def _configured_editorial_usernames() -> list[str]:
+    configured = get_settings().feed_editorial_usernames
+    return [
+        username.strip().lower()
+        for username in configured.split(",")
+        if username.strip()
+    ]
+
+
+def _merge_feed_posts(
+    *,
+    following_posts: list[Post],
+    editorial_posts: list[Post],
+    limit: int,
+) -> list[Post]:
+    merged: dict[UUID, Post] = {}
+
+    for post in following_posts:
+        merged[post.id] = post
+
+    for post in editorial_posts:
+        merged[post.id] = post
+
+    return sorted(
+        merged.values(),
+        key=lambda post: (post.created_at, post.id),
+        reverse=True,
+    )[:limit]
 
 
 def _encode_feed_cursor(
@@ -112,11 +144,24 @@ def list_feed_posts(
 
     repository = FeedRepository(db)
 
-    posts = repository.list_following_posts(
+    following_posts = repository.list_following_posts(
         viewer_user_id=viewer_user_id,
         limit=limit + 1,
         cursor_created_at=cursor_created_at,
         cursor_post_id=cursor_post_id,
+    )
+
+    editorial_posts = repository.list_editorial_posts(
+        editorial_usernames=_configured_editorial_usernames(),
+        limit=limit + 1,
+        cursor_created_at=cursor_created_at,
+        cursor_post_id=cursor_post_id,
+    )
+
+    posts = _merge_feed_posts(
+        following_posts=following_posts,
+        editorial_posts=editorial_posts,
+        limit=limit + 1,
     )
 
     next_cursor = None
