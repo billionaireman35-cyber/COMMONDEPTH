@@ -12,6 +12,21 @@ class PostCreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class PostMediaReadResponse(BaseModel):
+    id: UUID
+    media_asset_id: UUID
+    media_type: str
+    mime_type: str
+    file_size: int
+    width: int | None = None
+    height: int | None = None
+    duration_ms: int | None = None
+    url: str
+    position: int
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class PostResponse(BaseModel):
     id: UUID
     author_id: UUID
@@ -22,6 +37,7 @@ class PostResponse(BaseModel):
     like_count: int
     comment_count: int
     viewer_has_liked: bool
+    media: list[PostMediaReadResponse]
 
     model_config = ConfigDict(from_attributes=True)
 

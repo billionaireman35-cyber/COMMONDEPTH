@@ -1,17 +1,25 @@
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import get_media_storage
 from app.core.database import SessionLocal
 from app.main import app
-from app.models.content import Post
+from app.models.content import Post, PostComment, PostLike
+from app.models.media import MediaAsset, MediaUpload, PostMedia
 from app.models.identity import User
 from app.models.profile import Profile
 from app.models.social import Follow
 from app.repositories.feed import FeedRepository
 from app.services.feed import InvalidFeedListError, list_feed_posts
+
+
+class FeedFakeMediaStorage:
+    def get_read_url(self, *, storage_key: str) -> str:
+        return f"https://fake.example/read/{storage_key}"
 
 
 client = TestClient(app)
@@ -22,6 +30,11 @@ def clean_feed() -> None:
     db = SessionLocal()
     try:
         db.query(Follow).delete()
+        db.query(PostLike).delete()
+        db.query(PostComment).delete()
+        db.query(PostMedia).delete()
+        db.query(MediaUpload).delete()
+        db.query(MediaAsset).delete()
         db.query(Post).delete()
         db.query(Profile).delete()
         db.commit()
@@ -465,6 +478,125 @@ def test_feed_service_excludes_posts_from_non_followed_authors() -> None:
 
     assert posts == []
     assert next_cursor is None
+
+
+def test_feed_api_returns_engagement_and_ready_media_read_model() -> None:
+    viewer_id, viewer_token = _register()
+    _, author_token = _register()
+
+    _create_profile(author_token, "alice")
+    _follow(viewer_token, "alice")
+    post = _create_post(
+        author_token,
+        content="Media feed post.",
+    )
+
+    post_id = UUID(post["id"])
+
+    db = _db()
+    try:
+        db.add(
+            PostLike(
+                post_id=post_id,
+                user_id=UUID(viewer_id),
+            )
+        )
+
+        commenter_id, _ = _register()
+        db.add(
+            PostComment(
+                post_id=post_id,
+                user_id=UUID(commenter_id),
+                content="A real comment.",
+            )
+        )
+
+        first_asset = MediaAsset(
+            owner_id=UUID(post["author_id"]),
+            media_type="image",
+            mime_type="image/jpeg",
+            file_size=1024,
+            storage_provider="fake",
+            storage_key=f"media/feed/{uuid4()}",
+            status="ready",
+            width=1200,
+            height=800,
+        )
+        second_asset = MediaAsset(
+            owner_id=UUID(post["author_id"]),
+            media_type="video",
+            mime_type="video/mp4",
+            file_size=2048,
+            storage_provider="fake",
+            storage_key=f"media/feed/{uuid4()}",
+            status="ready",
+            width=1920,
+            height=1080,
+            duration_ms=5000,
+        )
+        db.add_all([first_asset, second_asset])
+        db.flush()
+
+        db.add_all(
+            [
+                MediaUpload(
+                    media_asset_id=first_asset.id,
+                    status="completed",
+                    expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                ),
+                MediaUpload(
+                    media_asset_id=second_asset.id,
+                    status="completed",
+                    expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                ),
+                PostMedia(
+                    post_id=post_id,
+                    media_asset_id=first_asset.id,
+                    position=1,
+                ),
+                PostMedia(
+                    post_id=post_id,
+                    media_asset_id=second_asset.id,
+                    position=0,
+                ),
+            ]
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    app.dependency_overrides[get_media_storage] = lambda: FeedFakeMediaStorage()
+    try:
+        response = client.get(
+            "/api/v1/feed",
+            headers=_auth_header(viewer_token),
+        )
+    finally:
+        app.dependency_overrides.pop(get_media_storage, None)
+
+    assert response.status_code == 200
+
+    item = response.json()["items"][0]
+
+    assert item["id"] == str(post_id)
+    assert item["like_count"] == 1
+    assert item["comment_count"] == 1
+    assert item["viewer_has_liked"] is True
+
+    assert [media["position"] for media in item["media"]] == [0, 1]
+    assert [media["media_type"] for media in item["media"]] == [
+        "video",
+        "image",
+    ]
+    assert item["media"][0]["url"].startswith(
+        "https://fake.example/read/"
+    )
+    assert item["media"][1]["url"].startswith(
+        "https://fake.example/read/"
+    )
+    assert "storage_key" not in item["media"][0]
+    assert "storage_key" not in item["media"][1]
+
 
 
 def test_feed_api_requires_authentication() -> None:

@@ -8,6 +8,8 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models.content import Post
+from app.integrations.media_storage import MediaStorage
+from app.repositories.media import MediaRepository
 from app.repositories.content import ContentRepository
 from app.repositories.engagement import (
     EngagementRepository,
@@ -18,9 +20,24 @@ from app.repositories.social import SocialRepository
 
 
 @dataclass(frozen=True)
+class PostMediaReadModel:
+    id: UUID
+    media_asset_id: UUID
+    media_type: str
+    mime_type: str
+    file_size: int
+    width: int | None
+    height: int | None
+    duration_ms: int | None
+    url: str
+    position: int
+
+
+@dataclass(frozen=True)
 class PostReadModel:
     post: Post
     engagement: PostEngagementSummary
+    media: list[PostMediaReadModel]
 
 
 class ContentError(Exception):
@@ -236,11 +253,46 @@ def get_post(
 
 
 
+def build_post_media_read_models(
+    db: Session,
+    *,
+    post_ids: list[UUID],
+    storage: MediaStorage,
+) -> dict[UUID, list[PostMediaReadModel]]:
+    grouped = MediaRepository(db).list_ready_media_by_post_ids(
+        post_ids=post_ids,
+    )
+
+    result: dict[UUID, list[PostMediaReadModel]] = {}
+
+    for post_id, items in grouped.items():
+        result[post_id] = [
+            PostMediaReadModel(
+                id=post_media.id,
+                media_asset_id=asset.id,
+                media_type=asset.media_type,
+                mime_type=asset.mime_type,
+                file_size=asset.file_size,
+                width=asset.width,
+                height=asset.height,
+                duration_ms=asset.duration_ms,
+                url=storage.get_read_url(
+                    storage_key=asset.storage_key,
+                ),
+                position=post_media.position,
+            )
+            for post_media, asset in items
+        ]
+
+    return result
+
+
 def get_post_read_model(
     db: Session,
     *,
     post_id: UUID,
     viewer_user_id: UUID,
+    storage: MediaStorage,
 ) -> PostReadModel:
     post = get_post(
         db,
@@ -251,9 +303,15 @@ def get_post_read_model(
         post_ids=[post.id],
         viewer_user_id=viewer_user_id,
     )[post.id]
+    media = build_post_media_read_models(
+        db,
+        post_ids=[post.id],
+        storage=storage,
+    ).get(post.id, [])
     return PostReadModel(
         post=post,
         engagement=engagement,
+        media=media,
     )
 
 
@@ -262,6 +320,7 @@ def list_posts_by_author_read_model(
     *,
     author_id: UUID,
     viewer_user_id: UUID,
+    storage: MediaStorage,
     limit: int = POST_DEFAULT_LIMIT,
     cursor: str | None = None,
 ) -> tuple[list[PostReadModel], str | None]:
@@ -273,15 +332,24 @@ def list_posts_by_author_read_model(
         cursor=cursor,
     )
 
+    post_ids = [post.id for post in posts]
+
     summaries = EngagementRepository(db).get_post_engagement_summaries(
-        post_ids=[post.id for post in posts],
+        post_ids=post_ids,
         viewer_user_id=viewer_user_id,
+    )
+
+    media_by_post = build_post_media_read_models(
+        db,
+        post_ids=post_ids,
+        storage=storage,
     )
 
     return [
         PostReadModel(
             post=post,
             engagement=summaries[post.id],
+            media=media_by_post.get(post.id, []),
         )
         for post in posts
     ], next_cursor

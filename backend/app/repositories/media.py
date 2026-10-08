@@ -3,7 +3,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.media import MediaAsset, MediaUpload
+from app.models.media import MediaAsset, MediaUpload, PostMedia
 
 
 class MediaRepository:
@@ -34,3 +34,66 @@ class MediaRepository:
     def add_upload(self, upload: MediaUpload) -> MediaUpload:
         self.db.add(upload)
         return upload
+
+    def get_post_media(
+        self,
+        *,
+        post_id: UUID,
+        media_asset_id: UUID,
+    ) -> PostMedia | None:
+        statement = select(PostMedia).where(
+            PostMedia.post_id == post_id,
+            PostMedia.media_asset_id == media_asset_id,
+        )
+        return self.db.execute(statement).scalar_one_or_none()
+
+    def get_post_media_by_position(
+        self,
+        *,
+        post_id: UUID,
+        position: int,
+    ) -> PostMedia | None:
+        statement = select(PostMedia).where(
+            PostMedia.post_id == post_id,
+            PostMedia.position == position,
+        )
+        return self.db.execute(statement).scalar_one_or_none()
+
+    def list_ready_media_by_post_ids(
+        self,
+        *,
+        post_ids: list[UUID],
+    ) -> dict[UUID, list[tuple[PostMedia, MediaAsset]]]:
+        if not post_ids:
+            return {}
+
+        statement = (
+            select(PostMedia, MediaAsset)
+            .join(
+                MediaAsset,
+                MediaAsset.id == PostMedia.media_asset_id,
+            )
+            .where(
+                PostMedia.post_id.in_(post_ids),
+                MediaAsset.status == "ready",
+                MediaAsset.deleted_at.is_(None),
+            )
+            .order_by(
+                PostMedia.post_id.asc(),
+                PostMedia.position.asc(),
+                PostMedia.id.asc(),
+            )
+        )
+
+        grouped: dict[UUID, list[tuple[PostMedia, MediaAsset]]] = {}
+
+        for post_media, asset in self.db.execute(statement).all():
+            grouped.setdefault(post_media.post_id, []).append(
+                (post_media, asset)
+            )
+
+        return grouped
+
+    def add_post_media(self, post_media: PostMedia) -> PostMedia:
+        self.db.add(post_media)
+        return post_media

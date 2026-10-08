@@ -32,3 +32,20 @@ class MediaUploadCompleteResponse(BaseModel):
     completed_at: datetime
 
     model_config = ConfigDict(extra="forbid")
+
+
+class PostMediaAttachRequest(BaseModel):
+    media_asset_id: UUID
+    position: int = Field(ge=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PostMediaResponse(BaseModel):
+    id: UUID
+    post_id: UUID
+    media_asset_id: UUID
+    position: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)

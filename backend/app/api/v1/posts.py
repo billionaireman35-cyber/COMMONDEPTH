@@ -3,8 +3,16 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_authenticated_session
+from app.api.dependencies import (
+    get_authenticated_session,
+    get_media_storage,
+)
 from app.core.database import get_db
+from app.integrations.media_storage import MediaStorage
+from app.schemas.media import (
+    PostMediaAttachRequest,
+    PostMediaResponse,
+)
 from app.schemas.content import (
     PostCommentCreateRequest,
     PostCommentListResponse,
@@ -13,6 +21,13 @@ from app.schemas.content import (
     PostLikeResponse,
     PostListResponse,
     PostResponse,
+)
+from app.services.post_media import (
+    PostMediaAccessDeniedError,
+    PostMediaError,
+    PostMediaNotFoundError,
+    PostMediaValidationError,
+    attach_media_to_post,
 )
 from app.services.content import (
     ContentError,
@@ -62,6 +77,21 @@ def _post_response(read_model: PostReadModel) -> PostResponse:
         like_count=engagement.like_count,
         comment_count=engagement.comment_count,
         viewer_has_liked=engagement.viewer_has_liked,
+        media=[
+            {
+                "id": media.id,
+                "media_asset_id": media.media_asset_id,
+                "media_type": media.media_type,
+                "mime_type": media.mime_type,
+                "file_size": media.file_size,
+                "width": media.width,
+                "height": media.height,
+                "duration_ms": media.duration_ms,
+                "url": media.url,
+                "position": media.position,
+            }
+            for media in read_model.media
+        ],
     )
 
 
@@ -76,6 +106,7 @@ def create(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> PostResponse:
     try:
         post = create_post(
@@ -104,6 +135,7 @@ def create(
         db,
         post_id=post.id,
         viewer_user_id=authenticated.user_id,
+        storage=storage,
     )
 
     return _post_response(read_model)
@@ -121,12 +153,14 @@ def list_user_posts(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> PostListResponse:
     try:
         read_models, next_cursor = list_posts_by_author_read_model(
             db,
             author_id=user_id,
             viewer_user_id=authenticated.user_id,
+            storage=storage,
             limit=limit,
             cursor=cursor,
         )
@@ -142,6 +176,51 @@ def list_user_posts(
     )
 
 
+@router.post(
+    "/{post_id}/media",
+    response_model=PostMediaResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def attach_media(
+    post_id: UUID,
+    payload: PostMediaAttachRequest,
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+) -> PostMediaResponse:
+    try:
+        attachment = attach_media_to_post(
+            db,
+            post_id=post_id,
+            media_asset_id=payload.media_asset_id,
+            user_id=authenticated.user_id,
+            position=payload.position,
+        )
+    except PostMediaValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+    except PostMediaNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from None
+    except PostMediaAccessDeniedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from None
+    except PostMediaError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Media could not be attached to the post.",
+        ) from None
+
+    return PostMediaResponse.model_validate(attachment)
+
+
 @router.get(
     "/{post_id}",
     response_model=PostResponse,
@@ -152,12 +231,14 @@ def get(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> PostResponse:
     try:
         read_model = get_post_read_model(
             db,
             post_id=post_id,
             viewer_user_id=authenticated.user_id,
+            storage=storage,
         )
     except (PostNotFoundError, PostAccessDeniedError):
         raise HTTPException(
