@@ -11,3 +11,6 @@ httpx2==2.13.1
 # Google OIDC
 google-auth==2.41.1
 boto3==1.43.108
+
+# Google OIDC HTTP transport
+requests==2.34.2
