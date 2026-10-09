@@ -7,7 +7,13 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.models.content import Post
+from app.integrations.media_storage import MediaStorage
 from app.repositories.discover import DiscoverRepository
+from app.repositories.engagement import EngagementRepository
+from app.services.content import (
+    PostReadModel,
+    build_post_media_read_models,
+)
 
 
 class DiscoverError(Exception):
@@ -120,3 +126,41 @@ def list_discover_posts(
         )
 
     return posts, next_cursor
+
+
+def list_discover_post_read_models(
+    db: Session,
+    *,
+    viewer_user_id: UUID,
+    storage: MediaStorage,
+    limit: int = DISCOVER_DEFAULT_LIMIT,
+    cursor: str | None = None,
+) -> tuple[list[PostReadModel], str | None]:
+    """Return public Discover posts with viewer engagement and ready media."""
+    posts, next_cursor = list_discover_posts(
+        db,
+        limit=limit,
+        cursor=cursor,
+    )
+
+    post_ids = [post.id for post in posts]
+
+    summaries = EngagementRepository(db).get_post_engagement_summaries(
+        post_ids=post_ids,
+        viewer_user_id=viewer_user_id,
+    )
+
+    media_by_post = build_post_media_read_models(
+        db,
+        post_ids=post_ids,
+        storage=storage,
+    )
+
+    return [
+        PostReadModel(
+            post=post,
+            engagement=summaries[post.id],
+            media=media_by_post.get(post.id, []),
+        )
+        for post in posts
+    ], next_cursor
