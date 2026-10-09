@@ -41,11 +41,15 @@ def _configured_editorial_usernames() -> list[str]:
 
 def _merge_feed_posts(
     *,
+    own_posts: list[Post],
     following_posts: list[Post],
     editorial_posts: list[Post],
     limit: int,
 ) -> list[Post]:
     merged: dict[UUID, Post] = {}
+
+    for post in own_posts:
+        merged[post.id] = post
 
     for post in following_posts:
         merged[post.id] = post
@@ -144,6 +148,13 @@ def list_feed_posts(
 
     repository = FeedRepository(db)
 
+    own_posts = repository.list_own_posts(
+        viewer_user_id=viewer_user_id,
+        limit=limit + 1,
+        cursor_created_at=cursor_created_at,
+        cursor_post_id=cursor_post_id,
+    )
+
     following_posts = repository.list_following_posts(
         viewer_user_id=viewer_user_id,
         limit=limit + 1,
@@ -159,6 +170,7 @@ def list_feed_posts(
     )
 
     posts = _merge_feed_posts(
+        own_posts=own_posts,
         following_posts=following_posts,
         editorial_posts=editorial_posts,
         limit=limit + 1,

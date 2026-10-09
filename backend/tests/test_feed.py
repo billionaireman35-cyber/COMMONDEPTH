@@ -609,6 +609,48 @@ def test_feed_service_returns_empty_feed_when_user_follows_no_one() -> None:
     assert next_cursor is None
 
 
+def test_feed_service_includes_own_post_when_user_follows_no_one() -> None:
+    viewer_id, viewer_token = _register()
+    _create_post(viewer_token, content="My own feed post.")
+
+    db = _db()
+    try:
+        posts, next_cursor = list_feed_posts(
+            db,
+            viewer_user_id=UUID(viewer_id),
+        )
+    finally:
+        db.close()
+
+    assert len(posts) == 1
+    assert posts[0].author_id == UUID(viewer_id)
+    assert posts[0].content == "My own feed post."
+    assert next_cursor is None
+
+
+def test_feed_service_includes_own_followers_only_post() -> None:
+    viewer_id, viewer_token = _register()
+    _create_post(
+        viewer_token,
+        content="My followers-only post.",
+        visibility="followers",
+    )
+
+    db = _db()
+    try:
+        posts, next_cursor = list_feed_posts(
+            db,
+            viewer_user_id=UUID(viewer_id),
+        )
+    finally:
+        db.close()
+
+    assert len(posts) == 1
+    assert posts[0].author_id == UUID(viewer_id)
+    assert posts[0].visibility == "followers"
+    assert next_cursor is None
+
+
 def test_feed_service_excludes_posts_from_non_followed_authors() -> None:
     viewer_id, _ = _register()
     _, author_token = _register()

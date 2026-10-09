@@ -56,6 +56,45 @@ class FeedRepository:
         return list(self.db.scalars(statement).all())
 
 
+    def list_own_posts(
+        self,
+        *,
+        viewer_user_id: UUID,
+        limit: int,
+        cursor_created_at: datetime | None = None,
+        cursor_post_id: UUID | None = None,
+    ) -> list[Post]:
+        """Return the viewer's own active, non-deleted posts.
+
+        Authors can see their own posts regardless of visibility, including
+        posts limited to followers.
+        """
+        statement = (
+            select(Post)
+            .join(User, User.id == Post.author_id)
+            .where(
+                Post.author_id == viewer_user_id,
+                User.status == "active",
+                Post.deleted_at.is_(None),
+            )
+            .order_by(
+                Post.created_at.desc(),
+                Post.id.desc(),
+            )
+            .limit(limit)
+        )
+
+        if cursor_created_at is not None and cursor_post_id is not None:
+            statement = statement.where(
+                (Post.created_at < cursor_created_at)
+                | (
+                    (Post.created_at == cursor_created_at)
+                    & (Post.id < cursor_post_id)
+                )
+            )
+
+        return list(self.db.scalars(statement).all())
+
     def list_editorial_posts(
         self,
         *,
