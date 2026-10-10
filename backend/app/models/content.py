@@ -184,3 +184,95 @@ class PostComment(Base):
             name="ck_post_comments_content_length",
         ),
     )
+
+
+class PostRepost(Base):
+    __tablename__ = "post_reposts"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+
+    post_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("posts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "post_id",
+            "user_id",
+            name="uq_post_reposts_post_user",
+        ),
+        Index(
+            "ix_post_reposts_post_created",
+            "post_id",
+            "created_at",
+        ),
+        Index(
+            "ix_post_reposts_user_created",
+            "user_id",
+            "created_at",
+        ),
+    )
+
+class PostBookmark(Base):
+    __tablename__ = "post_bookmarks"
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+
+    post_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("posts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    user_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "post_id",
+            "user_id",
+            name="uq_post_bookmarks_post_user",
+        ),
+        Index(
+            "ix_post_bookmarks_post_created",
+            "post_id",
+            "created_at",
+        ),
+        Index(
+            "ix_post_bookmarks_user_created",
+            "user_id",
+            "created_at",
+        ),
+    )
+

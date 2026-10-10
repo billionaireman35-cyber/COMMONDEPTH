@@ -4,9 +4,10 @@ import json
 from datetime import datetime, timezone
 from uuid import UUID
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.content import PostComment, PostLike
+from app.models.content import PostBookmark, PostComment, PostLike, PostRepost
 from app.repositories.engagement import EngagementRepository
 from app.repositories.identity import IdentityRepository
 from app.services.content import (
@@ -113,6 +114,182 @@ def unlike_post(
     except Exception:
         db.rollback()
         raise PostLikeError("Post could not be unliked.") from None
+
+
+
+class PostBookmarkError(EngagementError):
+    """Raised when a post-bookmark operation cannot be completed."""
+
+
+def bookmark_post(
+    db: Session,
+    *,
+    post_id: UUID,
+    user_id: UUID,
+) -> PostBookmark:
+    _require_active_user(db, user_id=user_id)
+    get_post(db, post_id=post_id, viewer_user_id=user_id)
+
+    repository = EngagementRepository(db)
+    existing = repository.get_post_bookmark(
+        post_id=post_id,
+        user_id=user_id,
+    )
+    if existing is not None:
+        return existing
+
+    bookmark = PostBookmark(
+        post_id=post_id,
+        user_id=user_id,
+    )
+    repository.add_post_bookmark(bookmark)
+
+    try:
+        db.flush()
+        db.commit()
+        db.refresh(bookmark)
+        return bookmark
+    except IntegrityError:
+        db.rollback()
+
+        # A concurrent duplicate request may have won the unique constraint.
+        existing = repository.get_post_bookmark(
+            post_id=post_id,
+            user_id=user_id,
+        )
+        if existing is not None:
+            return existing
+
+        raise PostBookmarkError(
+            "Post could not be bookmarked."
+        ) from None
+    except Exception:
+        db.rollback()
+        raise PostBookmarkError(
+            "Post could not be bookmarked."
+        ) from None
+
+
+def unbookmark_post(
+    db: Session,
+    *,
+    post_id: UUID,
+    user_id: UUID,
+) -> None:
+    _require_active_user(db, user_id=user_id)
+    get_post(db, post_id=post_id, viewer_user_id=user_id)
+
+    repository = EngagementRepository(db)
+    existing = repository.get_post_bookmark(
+        post_id=post_id,
+        user_id=user_id,
+    )
+    if existing is None:
+        return
+
+    repository.delete_post_bookmark(existing)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise PostBookmarkError(
+            "Post could not be unbookmarked."
+        ) from None
+
+
+class PostRepostError(EngagementError):
+    """Raised when a post-repost operation cannot be completed."""
+
+
+def repost_post(
+    db: Session,
+    *,
+    post_id: UUID,
+    user_id: UUID,
+) -> PostRepost:
+    _require_active_user(db, user_id=user_id)
+    get_post(db, post_id=post_id, viewer_user_id=user_id)
+
+    repository = EngagementRepository(db)
+    existing = repository.get_post_repost(
+        post_id=post_id,
+        user_id=user_id,
+    )
+    if existing is not None:
+        return existing
+
+    repost = PostRepost(post_id=post_id, user_id=user_id)
+    repository.add_post_repost(repost)
+
+    try:
+        db.flush()
+        db.commit()
+        db.refresh(repost)
+        return repost
+    except IntegrityError:
+        db.rollback()
+
+        # A concurrent duplicate request may have won the unique constraint.
+        existing = repository.get_post_repost(
+            post_id=post_id,
+            user_id=user_id,
+        )
+        if existing is not None:
+            return existing
+
+        raise PostRepostError(
+            "Post could not be reposted."
+        ) from None
+    except Exception:
+        db.rollback()
+        raise PostRepostError(
+            "Post could not be reposted."
+        ) from None
+
+
+def unrepost_post(
+    db: Session,
+    *,
+    post_id: UUID,
+    user_id: UUID,
+) -> None:
+    _require_active_user(db, user_id=user_id)
+    get_post(db, post_id=post_id, viewer_user_id=user_id)
+
+    repository = EngagementRepository(db)
+    existing = repository.get_post_repost(
+        post_id=post_id,
+        user_id=user_id,
+    )
+    if existing is None:
+        return
+
+    repository.delete_post_repost(existing)
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise PostRepostError(
+            "Post could not be unreposted."
+        ) from None
+
+
+def get_post_repost_count(
+    db: Session,
+    *,
+    post_id: UUID,
+    viewer_user_id: UUID,
+) -> int:
+    get_post(
+        db,
+        post_id=post_id,
+        viewer_user_id=viewer_user_id,
+    )
+    return EngagementRepository(db).count_post_reposts(
+        post_id=post_id,
+    )
 
 
 def get_post_like_count(

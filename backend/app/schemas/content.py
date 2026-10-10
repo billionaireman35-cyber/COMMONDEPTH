@@ -36,7 +36,10 @@ class PostResponse(BaseModel):
     updated_at: datetime
     like_count: int
     comment_count: int
+    repost_count: int
     viewer_has_liked: bool
+    viewer_has_reposted: bool
+    viewer_has_bookmarked: bool
     media: list[PostMediaReadResponse]
 
     model_config = ConfigDict(from_attributes=True)
@@ -69,6 +72,19 @@ class PostCommentListResponse(BaseModel):
 class PostLikeResponse(BaseModel):
     liked: bool
     like_count: int
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PostBookmarkResponse(BaseModel):
+    bookmarked: bool
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class PostRepostResponse(BaseModel):
+    reposted: bool
+    repost_count: int
 
     model_config = ConfigDict(extra="forbid")
 

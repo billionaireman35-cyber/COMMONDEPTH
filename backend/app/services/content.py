@@ -355,6 +355,66 @@ def list_posts_by_author_read_model(
     ], next_cursor
 
 
+def list_saved_posts_read_model(
+    db: Session,
+    *,
+    viewer_user_id: UUID,
+    storage: MediaStorage,
+    limit: int = POST_DEFAULT_LIMIT,
+    cursor: str | None = None,
+) -> tuple[list[PostReadModel], str | None]:
+    if limit < 1 or limit > POST_MAX_LIMIT:
+        raise InvalidPostListError("Invalid post list limit.")
+
+    cursor_created_at = None
+    cursor_bookmark_id = None
+
+    if cursor is not None:
+        cursor_created_at, cursor_bookmark_id = _decode_post_list_cursor(
+            cursor
+        )
+
+    saved_rows = EngagementRepository(db).list_saved_posts(
+        user_id=viewer_user_id,
+        limit=limit + 1,
+        cursor_created_at=cursor_created_at,
+        cursor_bookmark_id=cursor_bookmark_id,
+    )
+
+    next_cursor = None
+
+    if len(saved_rows) > limit:
+        saved_rows = saved_rows[:limit]
+        last_bookmark, _ = saved_rows[-1]
+        next_cursor = _encode_post_list_cursor(
+            created_at=last_bookmark.created_at,
+            post_id=last_bookmark.id,
+        )
+
+    posts = [post for _, post in saved_rows]
+    post_ids = [post.id for post in posts]
+
+    summaries = EngagementRepository(db).get_post_engagement_summaries(
+        post_ids=post_ids,
+        viewer_user_id=viewer_user_id,
+    )
+
+    media_by_post = build_post_media_read_models(
+        db,
+        post_ids=post_ids,
+        storage=storage,
+    )
+
+    return [
+        PostReadModel(
+            post=post,
+            engagement=summaries[post.id],
+            media=media_by_post.get(post.id, []),
+        )
+        for post in posts
+    ], next_cursor
+
+
 def delete_post(
     db: Session,
     *,

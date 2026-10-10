@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 
 from app.core.database import SessionLocal
-from app.models.content import Post, PostComment
+from app.models.content import Post, PostBookmark, PostComment, PostRepost
 from app.models.identity import User
 from app.services.content import PostAccessDeniedError
 from app.services.engagement import (
@@ -66,6 +66,8 @@ def _cleanup() -> None:
     db = SessionLocal()
     try:
         db.query(PostComment).delete()
+        db.query(PostBookmark).delete()
+        db.query(PostRepost).delete()
         db.query(Post).delete()
         db.commit()
     finally:

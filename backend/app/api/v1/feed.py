@@ -56,7 +56,12 @@ def get_feed(
                 updated_at=read_model.post.updated_at,
                 like_count=read_model.engagement.like_count,
                 comment_count=read_model.engagement.comment_count,
+                repost_count=read_model.engagement.repost_count,
                 viewer_has_liked=read_model.engagement.viewer_has_liked,
+                viewer_has_reposted=read_model.engagement.viewer_has_reposted,
+                viewer_has_bookmarked=(
+                    read_model.engagement.viewer_has_bookmarked
+                ),
                 media=[
                     {
                         "id": media.id,

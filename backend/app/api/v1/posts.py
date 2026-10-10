@@ -20,6 +20,8 @@ from app.schemas.content import (
     PostCreateRequest,
     PostLikeResponse,
     PostListResponse,
+    PostBookmarkResponse,
+    PostRepostResponse,
     PostResponse,
 )
 from app.services.post_media import (
@@ -41,6 +43,7 @@ from app.services.content import (
     delete_post,
     get_post_read_model,
     list_posts_by_author_read_model,
+    list_saved_posts_read_model,
 )
 from app.services.engagement import (
     EngagementUserInactiveError,
@@ -49,11 +52,18 @@ from app.services.engagement import (
     PostCommentNotFoundError,
     PostCommentUnauthorizedError,
     PostLikeError,
+    PostBookmarkError,
+    PostRepostError,
     comment_on_post,
     delete_post_comment,
     get_post_like_count,
+    get_post_repost_count,
     like_post,
     list_post_comments,
+    repost_post,
+    bookmark_post,
+    unbookmark_post,
+    unrepost_post,
     unlike_post,
 )
 
@@ -76,7 +86,10 @@ def _post_response(read_model: PostReadModel) -> PostResponse:
         updated_at=post.updated_at,
         like_count=engagement.like_count,
         comment_count=engagement.comment_count,
+        repost_count=engagement.repost_count,
         viewer_has_liked=engagement.viewer_has_liked,
+        viewer_has_reposted=engagement.viewer_has_reposted,
+        viewer_has_bookmarked=engagement.viewer_has_bookmarked,
         media=[
             {
                 "id": media.id,
@@ -117,7 +130,7 @@ def create(
         )
     except InvalidPostInputError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from None
     except InactiveUserError as exc:
@@ -166,7 +179,40 @@ def list_user_posts(
         )
     except InvalidPostListError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from None
+
+    return PostListResponse(
+        items=[_post_response(read_model) for read_model in read_models],
+        next_cursor=next_cursor,
+    )
+
+
+@router.get(
+    "/saved",
+    response_model=PostListResponse,
+)
+def list_saved_posts(
+    limit: int = 20,
+    cursor: str | None = None,
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
+) -> PostListResponse:
+    try:
+        read_models, next_cursor = list_saved_posts_read_model(
+            db,
+            viewer_user_id=authenticated.user_id,
+            storage=storage,
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidPostListError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from None
 
@@ -199,7 +245,7 @@ def attach_media(
         )
     except PostMediaValidationError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from None
     except PostMediaNotFoundError as exc:
@@ -342,6 +388,160 @@ def unlike(
 
 
 @router.post(
+    "/{post_id}/repost",
+    response_model=PostRepostResponse,
+)
+def repost(
+    post_id: UUID,
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+) -> PostRepostResponse:
+    try:
+        repost_post(
+            db,
+            post_id=post_id,
+            user_id=authenticated.user_id,
+        )
+        count = get_post_repost_count(
+            db,
+            post_id=post_id,
+            viewer_user_id=authenticated.user_id,
+        )
+    except EngagementUserInactiveError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from None
+    except (PostNotFoundError, PostAccessDeniedError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post not found.",
+        ) from None
+    except PostRepostError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Post could not be reposted.",
+        ) from None
+
+    return PostRepostResponse(reposted=True, repost_count=count)
+
+
+@router.delete(
+    "/{post_id}/repost",
+    response_model=PostRepostResponse,
+)
+def unrepost(
+    post_id: UUID,
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+) -> PostRepostResponse:
+    try:
+        unrepost_post(
+            db,
+            post_id=post_id,
+            user_id=authenticated.user_id,
+        )
+        count = get_post_repost_count(
+            db,
+            post_id=post_id,
+            viewer_user_id=authenticated.user_id,
+        )
+    except EngagementUserInactiveError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from None
+    except (PostNotFoundError, PostAccessDeniedError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post not found.",
+        ) from None
+    except PostRepostError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Post could not be unreposted.",
+        ) from None
+
+    return PostRepostResponse(reposted=False, repost_count=count)
+
+
+@router.post(
+    "/{post_id}/bookmark",
+    response_model=PostBookmarkResponse,
+)
+def bookmark(
+    post_id: UUID,
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+) -> PostBookmarkResponse:
+    try:
+        bookmark_post(
+            db,
+            post_id=post_id,
+            user_id=authenticated.user_id,
+        )
+    except EngagementUserInactiveError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from None
+    except (PostNotFoundError, PostAccessDeniedError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post not found.",
+        ) from None
+    except PostBookmarkError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Post could not be bookmarked.",
+        ) from None
+
+    return PostBookmarkResponse(bookmarked=True)
+
+
+@router.delete(
+    "/{post_id}/bookmark",
+    response_model=PostBookmarkResponse,
+)
+def unbookmark(
+    post_id: UUID,
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+) -> PostBookmarkResponse:
+    try:
+        unbookmark_post(
+            db,
+            post_id=post_id,
+            user_id=authenticated.user_id,
+        )
+    except EngagementUserInactiveError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from None
+    except (PostNotFoundError, PostAccessDeniedError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Post not found.",
+        ) from None
+    except PostBookmarkError:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Post could not be unbookmarked.",
+        ) from None
+
+    return PostBookmarkResponse(bookmarked=False)
+
+
+@router.post(
     "/{post_id}/comments",
     response_model=PostCommentResponse,
     status_code=status.HTTP_201_CREATED,
@@ -368,7 +568,7 @@ def create_comment(
         ) from None
     except InvalidPostCommentError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from None
     except (PostNotFoundError, PostAccessDeniedError):
@@ -413,7 +613,7 @@ def get_comments(
         ) from None
     except InvalidPostCommentError as exc:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=str(exc),
         ) from None
     except (PostNotFoundError, PostAccessDeniedError):

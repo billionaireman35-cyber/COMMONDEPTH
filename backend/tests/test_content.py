@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.core.database import SessionLocal
 from app.main import app
-from app.models.content import Post, PostComment, PostLike
+from app.models.content import Post, PostBookmark, PostComment, PostLike, PostRepost
 from app.models.profile import Profile
 from app.services.content import InvalidPostListError, list_posts_by_author
 
@@ -19,6 +19,8 @@ def clean_content() -> None:
     try:
         db.query(PostComment).delete()
         db.query(PostLike).delete()
+        db.query(PostBookmark).delete()
+        db.query(PostRepost).delete()
         db.query(Post).delete()
         db.query(Profile).delete()
         db.commit()
@@ -73,7 +75,9 @@ def test_create_public_post() -> None:
     assert body["updated_at"]
     assert body["like_count"] == 0
     assert body["comment_count"] == 0
+    assert body["repost_count"] == 0
     assert body["viewer_has_liked"] is False
+    assert body["viewer_has_reposted"] is False
 
 
 def test_create_post_trims_surrounding_whitespace() -> None:
@@ -824,7 +828,9 @@ def test_get_post_includes_real_like_count_and_viewer_like_state() -> None:
 
     assert viewer_body["like_count"] == 1
     assert viewer_body["comment_count"] == 0
+    assert viewer_body["repost_count"] == 0
     assert viewer_body["viewer_has_liked"] is True
+    assert viewer_body["viewer_has_reposted"] is False
 
     other_response = client.get(
         f"/api/v1/posts/{post["id"]}",
@@ -835,7 +841,9 @@ def test_get_post_includes_real_like_count_and_viewer_like_state() -> None:
 
     assert other_body["like_count"] == 1
     assert other_body["comment_count"] == 0
+    assert other_body["repost_count"] == 0
     assert other_body["viewer_has_liked"] is False
+    assert other_body["viewer_has_reposted"] is False
 
 
 def test_like_post_is_idempotent() -> None:
@@ -919,6 +927,609 @@ def test_unlike_post_without_existing_like_is_idempotent() -> None:
         "liked": False,
         "like_count": 0,
     }
+
+
+
+def test_bookmark_post_persists_bookmark() -> None:
+    _, author_token = _register()
+    viewer_id, viewer_token = _register()
+    post = _create_post(author_token)
+
+    response = client.post(
+        f"/api/v1/posts/{post['id']}/bookmark",
+        headers=_auth_header(viewer_token),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"bookmarked": True}
+
+    detail = client.get(
+        f"/api/v1/posts/{post['id']}",
+        headers=_auth_header(viewer_token),
+    )
+    assert detail.status_code == 200
+    assert detail.json()["viewer_has_bookmarked"] is True
+
+    db = SessionLocal()
+    try:
+        assert (
+            db.query(PostBookmark)
+            .filter_by(post_id=post["id"], user_id=viewer_id)
+            .count()
+            == 1
+        )
+    finally:
+        db.close()
+
+
+def test_bookmark_post_is_idempotent() -> None:
+    _, author_token = _register()
+    viewer_id, viewer_token = _register()
+    post = _create_post(author_token)
+    url = f"/api/v1/posts/{post['id']}/bookmark"
+    headers = _auth_header(viewer_token)
+
+    first = client.post(url, headers=headers)
+    second = client.post(url, headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json() == {"bookmarked": True}
+
+    db = SessionLocal()
+    try:
+        assert (
+            db.query(PostBookmark)
+            .filter_by(post_id=post["id"], user_id=viewer_id)
+            .count()
+            == 1
+        )
+    finally:
+        db.close()
+
+
+def test_unbookmark_post_removes_bookmark() -> None:
+    _, author_token = _register()
+    viewer_id, viewer_token = _register()
+    post = _create_post(author_token)
+    headers = _auth_header(viewer_token)
+    url = f"/api/v1/posts/{post['id']}/bookmark"
+
+    created = client.post(url, headers=headers)
+    assert created.status_code == 200
+
+    response = client.delete(url, headers=headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"bookmarked": False}
+
+    detail = client.get(
+        f"/api/v1/posts/{post['id']}",
+        headers=headers,
+    )
+    assert detail.status_code == 200
+    assert detail.json()["viewer_has_bookmarked"] is False
+
+    db = SessionLocal()
+    try:
+        assert (
+            db.query(PostBookmark)
+            .filter_by(post_id=post["id"], user_id=viewer_id)
+            .count()
+            == 0
+        )
+    finally:
+        db.close()
+
+
+def test_unbookmark_without_existing_bookmark_is_idempotent() -> None:
+    _, author_token = _register()
+    _, viewer_token = _register()
+    post = _create_post(author_token)
+
+    response = client.delete(
+        f"/api/v1/posts/{post['id']}/bookmark",
+        headers=_auth_header(viewer_token),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"bookmarked": False}
+
+
+def test_bookmark_post_requires_authentication() -> None:
+    _, author_token = _register()
+    post = _create_post(author_token)
+
+    response = client.post(f"/api/v1/posts/{post['id']}/bookmark")
+
+    assert response.status_code == 401
+
+
+def test_bookmark_missing_post_returns_404() -> None:
+    _, viewer_token = _register()
+
+    response = client.post(
+        f"/api/v1/posts/{uuid4()}/bookmark",
+        headers=_auth_header(viewer_token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_bookmark_followers_only_post_denies_unrelated_user() -> None:
+    _, author_token = _register()
+    _, viewer_token = _register()
+    post = _create_post(author_token, visibility="followers")
+
+    response = client.post(
+        f"/api/v1/posts/{post['id']}/bookmark",
+        headers=_auth_header(viewer_token),
+    )
+
+    assert response.status_code == 404
+
+
+
+
+
+def test_saved_followers_only_post_disappears_after_unfollow() -> None:
+    from uuid import UUID
+
+    author_id, author_token = _register()
+    viewer_id, viewer_token = _register()
+
+    profile_response = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(author_token),
+        json={
+            "username": f"author_{author_id.replace('-', '')[:20]}",
+            "display_name": "Saved author",
+        },
+    )
+    assert profile_response.status_code == 201, profile_response.text
+    username = profile_response.json()["username"]
+
+    _follow(viewer_token, username)
+    post = _create_post(
+        author_token,
+        content="Followers-only saved post",
+        visibility="followers",
+    )
+
+    bookmark_response = client.post(
+        f"/api/v1/posts/{post['id']}/bookmark",
+        headers=_auth_header(viewer_token),
+    )
+    assert bookmark_response.status_code == 200, bookmark_response.text
+
+    saved_before = client.get(
+        "/api/v1/posts/saved",
+        headers=_auth_header(viewer_token),
+    )
+    assert saved_before.status_code == 200, saved_before.text
+    assert post["id"] in {
+        item["id"] for item in saved_before.json()["items"]
+    }
+
+    unfollow_response = client.delete(
+        f"/api/v1/social/follow/{username}",
+        headers=_auth_header(viewer_token),
+    )
+    assert unfollow_response.status_code == 204, unfollow_response.text
+
+    saved_after = client.get(
+        "/api/v1/posts/saved",
+        headers=_auth_header(viewer_token),
+    )
+    assert saved_after.status_code == 200, saved_after.text
+    assert post["id"] not in {
+        item["id"] for item in saved_after.json()["items"]
+    }
+
+    # Losing access hides the post without deleting the bookmark.
+    db = SessionLocal()
+    try:
+        bookmark = (
+            db.query(PostBookmark)
+            .filter(
+                PostBookmark.post_id == UUID(post["id"]),
+                PostBookmark.user_id == UUID(viewer_id),
+            )
+            .one_or_none()
+        )
+        assert bookmark is not None
+    finally:
+        db.close()
+
+
+def test_public_profile_and_user_posts_do_not_expose_private_saved_collection() -> None:
+    author_id, author_token = _register()
+    _, saver_token = _register()
+    _, observer_token = _register()
+
+    profile_response = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(author_token),
+        json={
+            "username": f"public_{author_id.replace('-', '')[:20]}",
+            "display_name": "Public author",
+        },
+    )
+    assert profile_response.status_code == 201, profile_response.text
+    username = profile_response.json()["username"]
+
+    post = _create_post(
+        author_token,
+        content="A public post",
+        visibility="public",
+    )
+
+    bookmark_response = client.post(
+        f"/api/v1/posts/{post['id']}/bookmark",
+        headers=_auth_header(saver_token),
+    )
+    assert bookmark_response.status_code == 200, bookmark_response.text
+
+    private_collection_keys = {
+        "saved",
+        "saved_posts",
+        "bookmarks",
+        "post_bookmarks",
+    }
+
+    public_profile = client.get(f"/api/v1/profiles/{username}")
+    assert public_profile.status_code == 200, public_profile.text
+    assert private_collection_keys.isdisjoint(public_profile.json())
+
+    user_posts = client.get(
+        f"/api/v1/posts/user/{author_id}",
+        headers=_auth_header(observer_token),
+    )
+    assert user_posts.status_code == 200, user_posts.text
+
+    user_posts_body = user_posts.json()
+    assert private_collection_keys.isdisjoint(user_posts_body)
+    assert all(
+        private_collection_keys.isdisjoint(item)
+        for item in user_posts_body["items"]
+    )
+
+    matching_post = next(
+        item for item in user_posts_body["items"]
+        if item["id"] == post["id"]
+    )
+    assert matching_post["viewer_has_bookmarked"] is False
+
+
+def test_saved_posts_returns_only_current_users_bookmarks() -> None:
+    _, author_token = _register()
+    _, first_viewer_token = _register()
+    _, second_viewer_token = _register()
+
+    first_post = _create_post(author_token, content="First viewer saved this")
+    second_post = _create_post(author_token, content="Second viewer saved this")
+
+    first_bookmark = client.post(
+        f"/api/v1/posts/{first_post['id']}/bookmark",
+        headers=_auth_header(first_viewer_token),
+    )
+    second_bookmark = client.post(
+        f"/api/v1/posts/{second_post['id']}/bookmark",
+        headers=_auth_header(second_viewer_token),
+    )
+
+    assert first_bookmark.status_code == 200
+    assert second_bookmark.status_code == 200
+
+    first_response = client.get(
+        "/api/v1/posts/saved",
+        headers=_auth_header(first_viewer_token),
+    )
+    second_response = client.get(
+        "/api/v1/posts/saved",
+        headers=_auth_header(second_viewer_token),
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+
+    first_body = first_response.json()
+    second_body = second_response.json()
+
+    assert [item["id"] for item in first_body["items"]] == [first_post["id"]]
+    assert [item["id"] for item in second_body["items"]] == [second_post["id"]]
+    assert first_body["items"][0]["viewer_has_bookmarked"] is True
+    assert second_body["items"][0]["viewer_has_bookmarked"] is True
+
+
+def test_saved_posts_returns_empty_collection_for_new_viewer() -> None:
+    _, token = _register()
+
+    response = client.get(
+        "/api/v1/posts/saved",
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "next_cursor": None}
+
+
+def test_saved_posts_requires_authentication() -> None:
+    response = client.get("/api/v1/posts/saved")
+
+    assert response.status_code == 401
+
+
+def test_saved_posts_paginates_without_duplicates() -> None:
+    _, author_token = _register()
+    _, viewer_token = _register()
+    headers = _auth_header(viewer_token)
+
+    posts = [
+        _create_post(author_token, content=f"Saved pagination {index}")
+        for index in range(3)
+    ]
+
+    for post in posts:
+        response = client.post(
+            f"/api/v1/posts/{post['id']}/bookmark",
+            headers=headers,
+        )
+        assert response.status_code == 200
+
+    first_response = client.get(
+        "/api/v1/posts/saved",
+        params={"limit": 1},
+        headers=headers,
+    )
+    assert first_response.status_code == 200
+
+    first_body = first_response.json()
+    assert len(first_body["items"]) == 1
+    assert first_body["next_cursor"] is not None
+
+    second_response = client.get(
+        "/api/v1/posts/saved",
+        params={
+            "limit": 1,
+            "cursor": first_body["next_cursor"],
+        },
+        headers=headers,
+    )
+    assert second_response.status_code == 200
+
+    second_body = second_response.json()
+    assert len(second_body["items"]) == 1
+    assert second_body["next_cursor"] is not None
+
+    third_response = client.get(
+        "/api/v1/posts/saved",
+        params={
+            "limit": 1,
+            "cursor": second_body["next_cursor"],
+        },
+        headers=headers,
+    )
+    assert third_response.status_code == 200
+
+    third_body = third_response.json()
+    assert len(third_body["items"]) == 1
+    assert third_body["next_cursor"] is None
+
+    returned_ids = [
+        first_body["items"][0]["id"],
+        second_body["items"][0]["id"],
+        third_body["items"][0]["id"],
+    ]
+    assert len(set(returned_ids)) == 3
+    assert set(returned_ids) == {post["id"] for post in posts}
+
+
+def test_saved_posts_rejects_invalid_limit() -> None:
+    _, token = _register()
+    headers = _auth_header(token)
+
+    for limit in (0, 51):
+        response = client.get(
+            "/api/v1/posts/saved",
+            params={"limit": limit},
+            headers=headers,
+        )
+        assert response.status_code == 422
+
+
+def test_saved_posts_rejects_invalid_cursor() -> None:
+    _, token = _register()
+
+    response = client.get(
+        "/api/v1/posts/saved",
+        params={"cursor": "not-a-valid-cursor"},
+        headers=_auth_header(token),
+    )
+
+    assert response.status_code == 422
+
+
+def test_saved_posts_excludes_deleted_posts() -> None:
+    _, author_token = _register()
+    _, viewer_token = _register()
+    headers = _auth_header(viewer_token)
+
+    deleted_post = _create_post(author_token, content="Deleted saved post")
+    active_post = _create_post(author_token, content="Active saved post")
+
+    for post in (deleted_post, active_post):
+        response = client.post(
+            f"/api/v1/posts/{post['id']}/bookmark",
+            headers=headers,
+        )
+        assert response.status_code == 200
+
+    delete_response = client.delete(
+        f"/api/v1/posts/{deleted_post['id']}",
+        headers=_auth_header(author_token),
+    )
+    assert delete_response.status_code == 204
+
+    response = client.get(
+        "/api/v1/posts/saved",
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["id"] for item in body["items"]] == [active_post["id"]]
+
+def test_repost_post_persists_repost() -> None:
+    from app.models.content import PostRepost
+
+    _, author_token = _register()
+    viewer_id, viewer_token = _register()
+    post = _create_post(author_token)
+
+    response = client.post(
+        f"/api/v1/posts/{post['id']}/repost",
+        headers=_auth_header(viewer_token),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "reposted": True,
+        "repost_count": 1,
+    }
+
+    detail_response = client.get(
+        f"/api/v1/posts/{post['id']}",
+        headers=_auth_header(viewer_token),
+    )
+    assert detail_response.status_code == 200
+    detail_body = detail_response.json()
+    assert detail_body["repost_count"] == 1
+    assert detail_body["viewer_has_reposted"] is True
+
+    db = SessionLocal()
+    try:
+        records = (
+            db.query(PostRepost)
+            .filter_by(post_id=post["id"], user_id=viewer_id)
+            .all()
+        )
+        assert len(records) == 1
+    finally:
+        db.close()
+
+
+def test_repost_post_is_idempotent() -> None:
+    from app.models.content import PostRepost
+
+    _, author_token = _register()
+    viewer_id, viewer_token = _register()
+    post = _create_post(author_token)
+    url = f"/api/v1/posts/{post['id']}/repost"
+    headers = _auth_header(viewer_token)
+
+    first = client.post(url, headers=headers)
+    second = client.post(url, headers=headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert second.json() == {
+        "reposted": True,
+        "repost_count": 1,
+    }
+
+    db = SessionLocal()
+    try:
+        assert (
+            db.query(PostRepost)
+            .filter_by(post_id=post["id"], user_id=viewer_id)
+            .count()
+            == 1
+        )
+    finally:
+        db.close()
+
+
+def test_unrepost_post_removes_repost() -> None:
+    from app.models.content import PostRepost
+
+    _, author_token = _register()
+    viewer_id, viewer_token = _register()
+    post = _create_post(author_token)
+    headers = _auth_header(viewer_token)
+    url = f"/api/v1/posts/{post['id']}/repost"
+
+    created = client.post(url, headers=headers)
+    assert created.status_code == 200
+
+    response = client.delete(url, headers=headers)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "reposted": False,
+        "repost_count": 0,
+    }
+
+    db = SessionLocal()
+    try:
+        assert (
+            db.query(PostRepost)
+            .filter_by(post_id=post["id"], user_id=viewer_id)
+            .count()
+            == 0
+        )
+    finally:
+        db.close()
+
+
+def test_unrepost_without_existing_repost_is_idempotent() -> None:
+    _, author_token = _register()
+    _, viewer_token = _register()
+    post = _create_post(author_token)
+
+    response = client.delete(
+        f"/api/v1/posts/{post['id']}/repost",
+        headers=_auth_header(viewer_token),
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "reposted": False,
+        "repost_count": 0,
+    }
+
+
+def test_repost_post_requires_authentication() -> None:
+    _, author_token = _register()
+    post = _create_post(author_token)
+
+    response = client.post(f"/api/v1/posts/{post['id']}/repost")
+
+    assert response.status_code == 401
+
+
+def test_repost_missing_post_returns_404() -> None:
+    _, viewer_token = _register()
+
+    response = client.post(
+        f"/api/v1/posts/{uuid4()}/repost",
+        headers=_auth_header(viewer_token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_repost_followers_only_post_denies_unrelated_user() -> None:
+    _, author_token = _register()
+    _, viewer_token = _register()
+    post = _create_post(author_token, visibility="followers")
+
+    response = client.post(
+        f"/api/v1/posts/{post['id']}/repost",
+        headers=_auth_header(viewer_token),
+    )
+
+    assert response.status_code == 404
 
 
 def test_like_post_requires_authentication() -> None:
@@ -1069,7 +1680,9 @@ def test_get_post_includes_real_comment_count_and_excludes_deleted_comments() ->
 
     assert before_body["like_count"] == 0
     assert before_body["comment_count"] == 1
+    assert before_body["repost_count"] == 0
     assert before_body["viewer_has_liked"] is False
+    assert before_body["viewer_has_reposted"] is False
 
     delete_response = client.delete(
         f"/api/v1/posts/{post['id']}/comments/{comment_id}",
@@ -1086,7 +1699,9 @@ def test_get_post_includes_real_comment_count_and_excludes_deleted_comments() ->
 
     assert after_body["like_count"] == 0
     assert after_body["comment_count"] == 0
+    assert after_body["repost_count"] == 0
     assert after_body["viewer_has_liked"] is False
+    assert after_body["viewer_has_reposted"] is False
 
 
 def test_list_comments_returns_newest_first() -> None:

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import get_media_storage
 from app.core.database import SessionLocal
 from app.main import app
-from app.models.content import Post, PostComment, PostLike
+from app.models.content import Post, PostComment, PostLike, PostRepost
 from app.models.media import MediaAsset, MediaUpload, PostMedia
 from app.models.identity import User
 from app.models.profile import Profile
@@ -33,6 +33,7 @@ def clean_feed() -> None:
         db.query(Follow).delete()
         db.query(PostLike).delete()
         db.query(PostComment).delete()
+        db.query(PostRepost).delete()
         db.query(PostMedia).delete()
         db.query(MediaUpload).delete()
         db.query(MediaAsset).delete()
@@ -772,7 +773,9 @@ def test_feed_api_returns_engagement_and_ready_media_read_model() -> None:
     assert item["id"] == str(post_id)
     assert item["like_count"] == 1
     assert item["comment_count"] == 1
+    assert item["repost_count"] == 0
     assert item["viewer_has_liked"] is True
+    assert item["viewer_has_reposted"] is False
 
     assert [media["position"] for media in item["media"]] == [0, 1]
     assert [media["media_type"] for media in item["media"]] == [
