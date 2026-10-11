@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.models.base import Base
 import app.models.identity
 import app.models.profile
+import app.models.username_registry
 import app.models.social
 import app.models.content
 import app.models.media

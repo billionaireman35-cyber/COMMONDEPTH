@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
@@ -9,6 +10,7 @@ from app.main import app
 from app.models.identity import Session as IdentitySession
 from app.models.identity import User
 from app.models.profile import Profile
+from app.models.username_registry import UsernameRegistry
 from app.services.profile_verification import (
     ProfileNotFoundForVerificationError,
     verify_profile,
@@ -22,6 +24,7 @@ client = TestClient(app)
 def clean_profiles() -> None:
     db = SessionLocal()
     try:
+        db.query(UsernameRegistry).delete()
         db.query(Profile).delete()
         db.commit()
     finally:
@@ -334,6 +337,107 @@ def test_patch_duplicate_username_returns_conflict() -> None:
     )
 
     assert response.status_code == 409
+
+    # The failed username change must leave the original Profile intact.
+    unchanged = client.get(
+        "/api/v1/profiles/me",
+        headers=_auth_header(token_b),
+    )
+    assert unchanged.status_code == 200
+    assert unchanged.json()["username"] == "bob"
+
+    # Neither registry ownership record should have changed.
+    db = SessionLocal()
+    try:
+        alice_profile = db.query(Profile).filter_by(username="alice").one()
+        bob_profile = db.query(Profile).filter_by(username="bob").one()
+
+        alice_entry = (
+            db.query(UsernameRegistry)
+            .filter_by(username="alice")
+            .one()
+        )
+        bob_entry = (
+            db.query(UsernameRegistry)
+            .filter_by(username="bob")
+            .one()
+        )
+
+        assert alice_entry.status == "claimed"
+        assert alice_entry.owner_type == "profile"
+        assert alice_entry.profile_id == alice_profile.id
+
+        assert bob_entry.status == "claimed"
+        assert bob_entry.owner_type == "profile"
+        assert bob_entry.profile_id == bob_profile.id
+    finally:
+        db.close()
+
+
+
+def test_reserved_username_conflict_rolls_back_username_change() -> None:
+    _, token = _register()
+
+    created = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(token),
+        json={"username": "bob"},
+    )
+    assert created.status_code == 201
+
+    now = datetime.now(timezone.utc)
+    db = SessionLocal()
+    try:
+        db.add(
+            UsernameRegistry(
+                username="blocked",
+                status="reserved",
+                owner_type=None,
+                profile_id=None,
+                space_id=None,
+                reserved_at=now,
+                expires_at=now + timedelta(days=30),
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    response = client.patch(
+        "/api/v1/profiles/me",
+        headers=_auth_header(token),
+        json={"username": "blocked"},
+    )
+    assert response.status_code == 409
+
+    current = client.get(
+        "/api/v1/profiles/me",
+        headers=_auth_header(token),
+    )
+    assert current.status_code == 200
+    assert current.json()["username"] == "bob"
+
+    db = SessionLocal()
+    try:
+        profile = db.query(Profile).filter_by(username="bob").one()
+        old_entry = (
+            db.query(UsernameRegistry).filter_by(username="bob").one()
+        )
+        reserved_entry = (
+            db.query(UsernameRegistry).filter_by(username="blocked").one()
+        )
+
+        assert old_entry.status == "claimed"
+        assert old_entry.owner_type == "profile"
+        assert old_entry.profile_id == profile.id
+        assert old_entry.reserved_at is None
+        assert old_entry.expires_at is None
+
+        assert reserved_entry.status == "reserved"
+        assert reserved_entry.profile_id is None
+        assert reserved_entry.owner_type is None
+    finally:
+        db.close()
 
 
 def test_public_profile_can_be_viewed_anonymously() -> None:

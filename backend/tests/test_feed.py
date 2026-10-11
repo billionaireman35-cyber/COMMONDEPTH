@@ -12,6 +12,7 @@ from app.models.content import Post, PostComment, PostLike, PostRepost
 from app.models.media import MediaAsset, MediaUpload, PostMedia
 from app.models.identity import User
 from app.models.profile import Profile
+from app.models.username_registry import UsernameRegistry
 from app.models.social import Follow
 from app.repositories.feed import FeedRepository
 from app.core.config import get_settings
@@ -38,6 +39,7 @@ def clean_feed() -> None:
         db.query(MediaUpload).delete()
         db.query(MediaAsset).delete()
         db.query(Post).delete()
+        db.query(UsernameRegistry).delete()
         db.query(Profile).delete()
         db.commit()
     finally:

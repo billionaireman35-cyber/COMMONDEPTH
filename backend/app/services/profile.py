@@ -9,6 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.models.profile import Profile
 from app.repositories.profile import ProfileRepository
+from app.services.username_registry import (
+    UsernameRegistryInvariantError,
+    UsernameUnavailableError,
+    claim_profile_username,
+    reserve_profile_username,
+)
 
 USERNAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{1,29}$")
 
@@ -164,6 +170,11 @@ def create_profile(
 
         repository.add(profile)
         db.flush()
+        claim_profile_username(
+            db,
+            username=normalized_username,
+            profile_id=profile.id,
+        )
         db.commit()
 
         return profile
@@ -175,18 +186,31 @@ def create_profile(
     ):
         db.rollback()
         raise
+    except UsernameUnavailableError:
+        db.rollback()
+        raise UsernameAlreadyExistsError(
+            "Username already exists."
+        ) from None
+    except UsernameRegistryInvariantError:
+        db.rollback()
+        raise ProfileError(
+            "Profile could not be created."
+        ) from None
     except IntegrityError as exc:
         db.rollback()
         constraint_name = _integrity_constraint_name(exc)
 
+        if constraint_name in {
+            "uq_profiles_username",
+            "uq_username_registry_username",
+        }:
+            raise UsernameAlreadyExistsError(
+                "Username already exists."
+            ) from None
+
         if constraint_name == "uq_profiles_user_id":
             raise ProfileAlreadyExistsError(
                 "Profile already exists."
-            ) from None
-
-        if constraint_name == "uq_profiles_username":
-            raise UsernameAlreadyExistsError(
-                "Username already exists."
             ) from None
 
         raise ProfileError(
@@ -273,6 +297,16 @@ def update_profile(
                     "Username already exists."
                 )
 
+            reserve_profile_username(
+                db,
+                username=profile.username,
+                profile_id=profile.id,
+            )
+            claim_profile_username(
+                db,
+                username=normalized_username,
+                profile_id=profile.id,
+            )
             profile.username = normalized_username
 
         if display_name is not _UNSET:
@@ -295,9 +329,23 @@ def update_profile(
     except UsernameAlreadyExistsError:
         db.rollback()
         raise
+    except UsernameUnavailableError:
+        db.rollback()
+        raise UsernameAlreadyExistsError(
+            "Username already exists."
+        ) from None
+    except UsernameRegistryInvariantError:
+        db.rollback()
+        raise ProfileError(
+            "Profile could not be updated."
+        ) from None
     except IntegrityError as exc:
         db.rollback()
-        if _is_username_unique_violation(exc):
+        constraint_name = _integrity_constraint_name(exc)
+        if constraint_name in {
+            "uq_profiles_username",
+            "uq_username_registry_username",
+        }:
             raise UsernameAlreadyExistsError(
                 "Username already exists."
             ) from None

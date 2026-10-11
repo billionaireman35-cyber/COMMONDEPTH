@@ -8,6 +8,7 @@ from app.core.database import SessionLocal
 from app.main import app
 from app.models.identity import User
 from app.models.profile import Profile
+from app.models.username_registry import UsernameRegistry
 from app.models.social import Follow, FollowRequest
 
 
@@ -20,6 +21,7 @@ def clean_social() -> None:
     try:
         db.query(FollowRequest).delete()
         db.query(Follow).delete()
+        db.query(UsernameRegistry).delete()
         db.query(Profile).delete()
         db.commit()
     finally:

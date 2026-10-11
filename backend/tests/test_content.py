@@ -7,6 +7,7 @@ from app.core.database import SessionLocal
 from app.main import app
 from app.models.content import Post, PostBookmark, PostComment, PostLike, PostRepost
 from app.models.profile import Profile
+from app.models.username_registry import UsernameRegistry
 from app.services.content import InvalidPostListError, list_posts_by_author
 
 
@@ -22,6 +23,7 @@ def clean_content() -> None:
         db.query(PostBookmark).delete()
         db.query(PostRepost).delete()
         db.query(Post).delete()
+        db.query(UsernameRegistry).delete()
         db.query(Profile).delete()
         db.commit()
     finally:
