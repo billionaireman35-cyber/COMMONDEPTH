@@ -262,7 +262,7 @@ def test_media_upload_completion_succeeds_and_starts_processing(storage):
         assert body["asset_id"] == created["asset_id"]
         assert body["upload_id"] == created["upload_id"]
         assert body["upload_status"] == "completed"
-        assert body["asset_status"] == "processing"
+        assert body["asset_status"] == "ready"
         assert body["completed_at"]
     finally:
         _cleanup_user(user_id)

@@ -264,7 +264,16 @@ def test_create_media_upload_translates_storage_failure():
         db.close()
 
 
-def test_complete_media_upload_verifies_storage_and_starts_processing():
+@pytest.mark.parametrize(
+    ("media_type", "mime_type", "expected_asset_status"),
+    [
+        ("image", "image/jpeg", "ready"),
+        ("video", "video/mp4", "processing"),
+    ],
+)
+def test_complete_media_upload_verifies_storage_and_sets_expected_status(
+    media_type, mime_type, expected_asset_status
+):
     user_id = _create_test_user()
     db = SessionLocal()
     storage = FakeMediaStorage()
@@ -274,8 +283,8 @@ def test_complete_media_upload_verifies_storage_and_starts_processing():
             db,
             storage=storage,
             owner_id=user_id,
-            media_type="image",
-            mime_type="image/jpeg",
+            media_type=media_type,
+            mime_type=mime_type,
             file_size=1024,
         )
 
@@ -283,7 +292,7 @@ def test_complete_media_upload_verifies_storage_and_starts_processing():
             storage_provider="fake",
             storage_key=created.asset.storage_key,
             file_size=1024,
-            mime_type="image/jpeg",
+            mime_type=mime_type,
         )
 
         result = complete_media_upload(
@@ -295,7 +304,7 @@ def test_complete_media_upload_verifies_storage_and_starts_processing():
 
         assert result.upload.status == "completed"
         assert result.upload.completed_at is not None
-        assert result.asset.status == "processing"
+        assert result.asset.status == expected_asset_status
 
     finally:
         db.close()
