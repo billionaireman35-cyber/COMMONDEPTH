@@ -4,7 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_authenticated_session
+from app.api.dependencies import (
+    get_authenticated_session,
+    get_media_storage,
+)
 from app.core.database import get_db
 from app.schemas.profile import (
     ProfileCreateRequest,
@@ -12,6 +15,7 @@ from app.schemas.profile import (
     ProfileResponse,
     ProfileSearchResponse,
     ProfileUpdateRequest,
+    ProfileSearchItem,
 )
 from app.services.profile import (
     InvalidProfileInputError,
@@ -27,6 +31,11 @@ from app.services.profile import (
     update_profile,
     _UNSET,
 )
+from app.services.profile_media import (
+    serialize_profile_discovery_response,
+    serialize_profile_response,
+)
+from app.integrations.media_storage.protocol import MediaStorage
 from app.services.session_authentication import (
     AuthenticatedSession,
     SessionAuthenticationError,
@@ -70,6 +79,7 @@ def create(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> ProfileResponse:
     try:
         profile = create_profile(
@@ -79,6 +89,8 @@ def create(
             display_name=request.display_name,
             avatar=request.avatar,
             banner=request.banner,
+            avatar_asset_id=request.avatar_asset_id,
+            banner_asset_id=request.banner_asset_id,
             biography=request.biography,
             location=request.location,
             visibility=request.visibility,
@@ -102,7 +114,7 @@ def create(
             detail="Profile could not be created.",
         ) from None
 
-    return ProfileResponse.model_validate(profile)
+    return serialize_profile_response(db, profile, storage=storage)
 
 
 @router.get(
@@ -115,6 +127,7 @@ def me(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> ProfileResponse:
     try:
         profile = get_my_profile(
@@ -127,7 +140,7 @@ def me(
             detail=str(exc),
         ) from None
 
-    return ProfileResponse.model_validate(profile)
+    return serialize_profile_response(db, profile, storage=storage)
 
 
 @router.patch(
@@ -141,6 +154,7 @@ def update_me(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> ProfileResponse:
     try:
         fields = request.model_fields_set
@@ -155,6 +169,16 @@ def update_me(
             ),
             avatar=request.avatar if "avatar" in fields else _UNSET,
             banner=request.banner if "banner" in fields else _UNSET,
+            avatar_asset_id=(
+                request.avatar_asset_id
+                if "avatar_asset_id" in fields
+                else _UNSET
+            ),
+            banner_asset_id=(
+                request.banner_asset_id
+                if "banner_asset_id" in fields
+                else _UNSET
+            ),
             biography=(
                 request.biography
                 if "biography" in fields
@@ -188,7 +212,7 @@ def update_me(
             detail="Profile could not be updated.",
         ) from None
 
-    return ProfileResponse.model_validate(profile)
+    return serialize_profile_response(db, profile, storage=storage)
 
 
 @router.get(
@@ -204,6 +228,7 @@ def search(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> ProfileSearchResponse:
     try:
         profiles, next_cursor = search_profiles(
@@ -220,7 +245,14 @@ def search(
         ) from None
 
     return ProfileSearchResponse(
-        items=profiles,
+        items=[
+            ProfileSearchItem.model_validate(
+                serialize_profile_discovery_response(
+                    db, profile, storage=storage
+                )
+            )
+            for profile in profiles
+        ],
         next_cursor=next_cursor,
     )
 
@@ -236,7 +268,8 @@ def get_by_username(
         get_optional_authenticated_session
     ),
     db: Session = Depends(get_db),
-) -> ProfileResponse:
+    storage: MediaStorage = Depends(get_media_storage),
+) -> ProfileResponse | ProfileDiscoveryResponse:
     viewer_user_id: UUID | None = (
         authenticated.user_id if authenticated is not None else None
     )
@@ -260,6 +293,8 @@ def get_by_username(
         profile.visibility == "private"
         and profile.user_id != viewer_user_id
     ):
-        return ProfileDiscoveryResponse.model_validate(profile)
+        return serialize_profile_discovery_response(
+            db, profile, storage=storage
+        )
 
-    return ProfileResponse.model_validate(profile)
+    return serialize_profile_response(db, profile, storage=storage)

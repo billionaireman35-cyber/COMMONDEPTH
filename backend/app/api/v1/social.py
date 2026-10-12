@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_authenticated_session
+from app.api.dependencies import get_authenticated_session, get_media_storage
 from app.core.database import get_db
 from app.models.social import Follow
 from app.schemas.social import (
@@ -13,6 +13,8 @@ from app.schemas.social import (
     SocialRelationshipCountsResponse,
 )
 from app.services.profile import InvalidProfileInputError
+from app.services.profile_media import serialize_profile_discovery_response
+from app.integrations.media_storage.protocol import MediaStorage
 from app.services.session_authentication import AuthenticatedSession
 from app.services.social import (
     AlreadyFollowingError,
@@ -296,6 +298,7 @@ def followers(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> FollowersResponse:
     try:
         profiles, next_cursor = list_followers(
@@ -326,7 +329,17 @@ def followers(
             detail=str(exc),
         ) from None
 
-    return FollowersResponse(items=profiles, next_cursor=next_cursor)
+    return FollowersResponse(
+        items=[
+            serialize_profile_discovery_response(
+                db,
+                profile,
+                storage=storage,
+            )
+            for profile in profiles
+        ],
+        next_cursor=next_cursor,
+    )
 
 
 @router.get(
@@ -341,6 +354,7 @@ def following(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> FollowingResponse:
     try:
         profiles, next_cursor = list_following(
@@ -371,4 +385,14 @@ def following(
             detail=str(exc),
         ) from None
 
-    return FollowingResponse(items=profiles, next_cursor=next_cursor)
+    return FollowingResponse(
+        items=[
+            serialize_profile_discovery_response(
+                db,
+                profile,
+                storage=storage,
+            )
+            for profile in profiles
+        ],
+        next_cursor=next_cursor,
+    )

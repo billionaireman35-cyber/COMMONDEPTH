@@ -11,6 +11,8 @@ class ProfileCreateRequest(BaseModel):
     display_name: str | None = None
     avatar: str | None = None
     banner: str | None = None
+    avatar_asset_id: UUID | None = None
+    banner_asset_id: UUID | None = None
     biography: str | None = None
     location: str | None = None
     visibility: str = "public"
@@ -23,6 +25,8 @@ class ProfileUpdateRequest(BaseModel):
     display_name: str | None = None
     avatar: str | None = None
     banner: str | None = None
+    avatar_asset_id: UUID | None = None
+    banner_asset_id: UUID | None = None
     biography: str | None = None
     location: str | None = None
     visibility: str | None = None
@@ -35,6 +39,8 @@ class ProfileResponse(BaseModel):
     display_name: str | None
     avatar: str | None
     banner: str | None
+    avatar_asset_id: UUID | None = None
+    banner_asset_id: UUID | None = None
     biography: str | None
     location: str | None
     visibility: str

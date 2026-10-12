@@ -9,6 +9,10 @@ from sqlalchemy.orm import Session
 
 from app.models.profile import Profile
 from app.repositories.profile import ProfileRepository
+from app.services.profile_media import (
+    InvalidProfileMediaError,
+    validate_profile_image_asset,
+)
 from app.services.username_registry import (
     UsernameRegistryInvariantError,
     UsernameUnavailableError,
@@ -129,6 +133,8 @@ def create_profile(
     display_name: str | None = None,
     avatar: str | None = None,
     banner: str | None = None,
+    avatar_asset_id: UUID | None = None,
+    banner_asset_id: UUID | None = None,
     biography: str | None = None,
     location: str | None = None,
     visibility: str = "public",
@@ -143,6 +149,25 @@ def create_profile(
         location=location,
         visibility=visibility,
     )
+
+    if avatar_asset_id is not None and avatar is not None:
+        raise InvalidProfileInputError(
+            "Provide either an avatar URL or an avatar asset, not both."
+        )
+    if banner_asset_id is not None and banner is not None:
+        raise InvalidProfileInputError(
+            "Provide either a banner URL or a banner asset, not both."
+        )
+
+    try:
+        validate_profile_image_asset(
+            db, owner_id=user_id, asset_id=avatar_asset_id
+        )
+        validate_profile_image_asset(
+            db, owner_id=user_id, asset_id=banner_asset_id
+        )
+    except InvalidProfileMediaError as exc:
+        raise InvalidProfileInputError(str(exc)) from None
 
     repository = ProfileRepository(db)
 
@@ -161,8 +186,10 @@ def create_profile(
             user_id=user_id,
             username=normalized_username,
             display_name=display_name,
-            avatar=avatar,
-            banner=banner,
+            avatar=avatar if avatar_asset_id is None else None,
+            banner=banner if banner_asset_id is None else None,
+            avatar_asset_id=avatar_asset_id,
+            banner_asset_id=banner_asset_id,
             biography=biography,
             location=location,
             visibility=visibility,
@@ -257,6 +284,8 @@ def update_profile(
     display_name: str | None | object = _UNSET,
     avatar: str | None | object = _UNSET,
     banner: str | None | object = _UNSET,
+    avatar_asset_id: UUID | None | object = _UNSET,
+    banner_asset_id: UUID | None | object = _UNSET,
     biography: str | None | object = _UNSET,
     location: str | None | object = _UNSET,
     visibility: str | None | object = _UNSET,
@@ -285,6 +314,35 @@ def update_profile(
         visibility=optional_value(visibility),
     )
 
+    if (
+        avatar_asset_id is not _UNSET
+        and avatar is not _UNSET
+        and (avatar_asset_id is not None or avatar is not None)
+    ):
+        raise InvalidProfileInputError(
+            "Provide either an avatar URL or an avatar asset, not both."
+        )
+    if (
+        banner_asset_id is not _UNSET
+        and banner is not _UNSET
+        and (banner_asset_id is not None or banner is not None)
+    ):
+        raise InvalidProfileInputError(
+            "Provide either a banner URL or a banner asset, not both."
+        )
+
+    try:
+        if avatar_asset_id is not _UNSET and avatar_asset_id is not None:
+            validate_profile_image_asset(
+                db, owner_id=user_id, asset_id=avatar_asset_id
+            )
+        if banner_asset_id is not _UNSET and banner_asset_id is not None:
+            validate_profile_image_asset(
+                db, owner_id=user_id, asset_id=banner_asset_id
+            )
+    except InvalidProfileMediaError as exc:
+        raise InvalidProfileInputError(str(exc)) from None
+
     try:
         if (
             normalized_username is not None
@@ -311,10 +369,20 @@ def update_profile(
 
         if display_name is not _UNSET:
             profile.display_name = display_name
-        if avatar is not _UNSET:
+        if avatar_asset_id is not _UNSET:
+            profile.avatar_asset_id = avatar_asset_id
+            profile.avatar = None
+        elif avatar is not _UNSET:
             profile.avatar = avatar
-        if banner is not _UNSET:
+            profile.avatar_asset_id = None
+
+        if banner_asset_id is not _UNSET:
+            profile.banner_asset_id = banner_asset_id
+            profile.banner = None
+        elif banner is not _UNSET:
             profile.banner = banner
+            profile.banner_asset_id = None
+
         if biography is not _UNSET:
             profile.biography = biography
         if location is not _UNSET:

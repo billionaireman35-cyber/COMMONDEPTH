@@ -46,6 +46,16 @@ class Profile(Base):
         String(2048),
         nullable=True,
     )
+    avatar_asset_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("media_assets.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    banner_asset_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("media_assets.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     biography: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
