@@ -268,7 +268,7 @@ def test_create_media_upload_translates_storage_failure():
     ("media_type", "mime_type", "expected_asset_status"),
     [
         ("image", "image/jpeg", "ready"),
-        ("video", "video/mp4", "processing"),
+        ("video", "video/mp4", "ready"),
     ],
 )
 def test_complete_media_upload_verifies_storage_and_sets_expected_status(

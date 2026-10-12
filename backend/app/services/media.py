@@ -184,10 +184,10 @@ def complete_media_upload(
     """
     Verify a completed storage upload and advance its media lifecycle.
 
-    Successful completion verifies the stored object and moves the upload
-    to ``completed``. Verified images become ``ready`` immediately because
-    the MVP has no image-processing worker. Videos remain ``processing``
-    until a dedicated video-processing workflow is implemented.
+    Successful completion independently verifies the stored object and
+    moves the upload to ``completed``. Verified images and videos become
+    ``ready`` so they can be attached to posts and read directly from storage.
+    Video transcoding and adaptive streaming are outside this MVP workflow.
     """
     repository = MediaRepository(db)
 
@@ -243,7 +243,7 @@ def complete_media_upload(
     upload.completed_at = now
     upload.failure_reason = None
 
-    asset.status = "ready" if asset.media_type == "image" else "processing"
+    asset.status = "ready"
 
     try:
         db.commit()
