@@ -1,12 +1,18 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_authenticated_session
 from app.core.database import get_db
 from app.models.social import Follow
-from app.schemas.social import FollowResponse
+from app.schemas.social import (
+    FollowersResponse,
+    FollowingResponse,
+    FollowResponse,
+    SocialRelationshipCountsResponse,
+)
+from app.services.profile import InvalidProfileInputError
 from app.services.session_authentication import AuthenticatedSession
 from app.services.social import (
     AlreadyFollowingError,
@@ -23,6 +29,11 @@ from app.services.social import (
     follow_user,
     reject_follow_request,
     unfollow_user,
+    InvalidSocialCursorError,
+    SocialRelationshipAccessDeniedError,
+    get_relationship_counts,
+    list_followers,
+    list_following,
 )
 
 
@@ -232,3 +243,132 @@ def cancel_request(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Follow request could not be cancelled.",
         ) from None
+
+
+@router.get(
+    "/profiles/{username}/relationships",
+    response_model=SocialRelationshipCountsResponse,
+)
+def relationship_counts(
+    username: str,
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+) -> SocialRelationshipCountsResponse:
+    try:
+        follower_count, following_count = get_relationship_counts(
+            db,
+            username=username,
+            viewer_user_id=authenticated.user_id,
+        )
+    except SocialRelationshipAccessDeniedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from None
+    except (SocialTargetNotFoundError, SocialTargetInactiveError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found.",
+        ) from None
+    except InvalidProfileInputError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+
+    return SocialRelationshipCountsResponse(
+        follower_count=follower_count,
+        following_count=following_count,
+    )
+
+
+@router.get(
+    "/profiles/{username}/followers",
+    response_model=FollowersResponse,
+)
+def followers(
+    username: str,
+    limit: int = Query(default=20, ge=1, le=50),
+    cursor: str | None = Query(default=None, max_length=1024),
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+) -> FollowersResponse:
+    try:
+        profiles, next_cursor = list_followers(
+            db,
+            username=username,
+            viewer_user_id=authenticated.user_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except SocialRelationshipAccessDeniedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from None
+    except (SocialTargetNotFoundError, SocialTargetInactiveError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found.",
+        ) from None
+    except InvalidProfileInputError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+    except InvalidSocialCursorError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+
+    return FollowersResponse(items=profiles, next_cursor=next_cursor)
+
+
+@router.get(
+    "/profiles/{username}/following",
+    response_model=FollowingResponse,
+)
+def following(
+    username: str,
+    limit: int = Query(default=20, ge=1, le=50),
+    cursor: str | None = Query(default=None, max_length=1024),
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+) -> FollowingResponse:
+    try:
+        profiles, next_cursor = list_following(
+            db,
+            username=username,
+            viewer_user_id=authenticated.user_id,
+            limit=limit,
+            cursor=cursor,
+        )
+    except SocialRelationshipAccessDeniedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from None
+    except (SocialTargetNotFoundError, SocialTargetInactiveError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found.",
+        ) from None
+    except InvalidProfileInputError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+    except InvalidSocialCursorError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+
+    return FollowingResponse(items=profiles, next_cursor=next_cursor)

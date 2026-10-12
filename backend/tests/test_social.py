@@ -1,4 +1,4 @@
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -673,3 +673,223 @@ def test_follow_username_is_normalized() -> None:
 
     assert response.status_code == 201
     assert response.json() == {"status": "following"}
+
+def test_relationship_counts_and_lists_are_correct() -> None:
+    _, alice_token = _register()
+    bob_id, bob_token = _register()
+    _, charlie_token = _register()
+
+    _create_profile(alice_token, "alice")
+    _create_profile(bob_token, "bob")
+    _create_profile(charlie_token, "charlie")
+
+    response = client.post(
+        "/api/v1/social/follow/alice",
+        headers=_auth_header(bob_token),
+    )
+    assert response.status_code == 201
+
+    response = client.post(
+        "/api/v1/social/follow/charlie",
+        headers=_auth_header(alice_token),
+    )
+    assert response.status_code == 201
+
+    response = client.get(
+        "/api/v1/social/profiles/alice/relationships",
+        headers=_auth_header(alice_token),
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "follower_count": 1,
+        "following_count": 1,
+    }
+
+    response = client.get(
+        "/api/v1/social/profiles/alice/followers",
+        headers=_auth_header(alice_token),
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["username"] for item in body["items"]] == ["bob"]
+    assert body["next_cursor"] is None
+
+    # Relationship list items must not expose private profile fields.
+    item = body["items"][0]
+    assert "biography" not in item
+    assert "location" not in item
+
+    response = client.get(
+        "/api/v1/social/profiles/alice/following",
+        headers=_auth_header(alice_token),
+    )
+    assert response.status_code == 200
+    assert [item["username"] for item in response.json()["items"]] == [
+        "charlie"
+    ]
+
+
+def test_follower_pagination_returns_every_profile_once() -> None:
+    _, alice_token = _register()
+    _create_profile(alice_token, "alice")
+
+    follower_tokens = []
+    for username in ("bob", "carol", "dave"):
+        _, token = _register()
+        _create_profile(token, username)
+        follower_tokens.append(token)
+
+        response = client.post(
+            "/api/v1/social/follow/alice",
+            headers=_auth_header(token),
+        )
+        assert response.status_code == 201
+
+    first = client.get(
+        "/api/v1/social/profiles/alice/followers",
+        params={"limit": 2},
+        headers=_auth_header(alice_token),
+    )
+    assert first.status_code == 200
+    first_body = first.json()
+    assert len(first_body["items"]) == 2
+    assert first_body["next_cursor"] is not None
+
+    second = client.get(
+        "/api/v1/social/profiles/alice/followers",
+        params={
+            "limit": 2,
+            "cursor": first_body["next_cursor"],
+        },
+        headers=_auth_header(alice_token),
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert len(second_body["items"]) == 1
+    assert second_body["next_cursor"] is None
+
+    usernames = [
+        item["username"]
+        for item in first_body["items"] + second_body["items"]
+    ]
+    assert len(usernames) == 3
+    assert set(usernames) == {"bob", "carol", "dave"}
+
+
+def test_private_relationships_require_owner_or_accepted_follower() -> None:
+    owner_id, owner_token = _register()
+    viewer_id, viewer_token = _register()
+    _, stranger_token = _register()
+
+    _create_profile(owner_token, "privatealice", visibility="private")
+
+    # A private-profile follow attempt creates a pending request, not a follow.
+    response = client.post(
+        "/api/v1/social/follow/privatealice",
+        headers=_auth_header(viewer_token),
+    )
+    assert response.status_code == 201
+    assert response.json() == {"status": "pending"}
+
+    denied = client.get(
+        "/api/v1/social/profiles/privatealice/relationships",
+        headers=_auth_header(stranger_token),
+    )
+    assert denied.status_code == 403
+
+    # The owner can inspect counts; a pending request contributes zero.
+    owner_counts = client.get(
+        "/api/v1/social/profiles/privatealice/relationships",
+        headers=_auth_header(owner_token),
+    )
+    assert owner_counts.status_code == 200
+    assert owner_counts.json() == {
+        "follower_count": 0,
+        "following_count": 0,
+    }
+
+    db = _db()
+    try:
+        request = (
+            db.query(FollowRequest)
+            .filter(
+                FollowRequest.requester_id == UUID(viewer_id),
+                FollowRequest.target_id == UUID(owner_id),
+                FollowRequest.status == "pending",
+            )
+            .one()
+        )
+        request_id = request.id
+    finally:
+        db.close()
+
+    accepted = client.post(
+        f"/api/v1/social/follow-requests/{request_id}/accept",
+        headers=_auth_header(owner_token),
+    )
+    assert accepted.status_code == 200
+
+    allowed = client.get(
+        "/api/v1/social/profiles/privatealice/followers",
+        headers=_auth_header(viewer_token),
+    )
+    assert allowed.status_code == 200
+    assert allowed.json()["next_cursor"] is None
+    assert allowed.json()["items"] == []
+
+
+def test_inactive_related_accounts_are_excluded() -> None:
+    follower_id, follower_token = _register()
+    _, alice_token = _register()
+
+    _create_profile(follower_token, "inactivebob")
+    _create_profile(alice_token, "alice")
+
+    response = client.post(
+        "/api/v1/social/follow/alice",
+        headers=_auth_header(follower_token),
+    )
+    assert response.status_code == 201
+
+    db = _db()
+    try:
+        follower = db.get(User, UUID(follower_id))
+        assert follower is not None
+        follower.status = "deactivated"
+        db.commit()
+    finally:
+        db.close()
+
+    counts = client.get(
+        "/api/v1/social/profiles/alice/relationships",
+        headers=_auth_header(alice_token),
+    )
+    assert counts.status_code == 200
+    assert counts.json()["follower_count"] == 0
+
+    followers = client.get(
+        "/api/v1/social/profiles/alice/followers",
+        headers=_auth_header(alice_token),
+    )
+    assert followers.status_code == 200
+    assert followers.json()["items"] == []
+
+
+def test_relationship_endpoints_require_authentication() -> None:
+    for suffix in ("relationships", "followers", "following"):
+        response = client.get(
+            f"/api/v1/social/profiles/alice/{suffix}",
+        )
+        assert response.status_code == 401
+
+
+def test_relationship_list_rejects_invalid_cursor() -> None:
+    _, token = _register()
+    _create_profile(token, "alice")
+
+    response = client.get(
+        "/api/v1/social/profiles/alice/followers",
+        params={"cursor": "not-a-valid-cursor"},
+        headers=_auth_header(token),
+    )
+    assert response.status_code == 422

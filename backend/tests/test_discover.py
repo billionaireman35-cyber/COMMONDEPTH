@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
@@ -198,16 +199,27 @@ def test_discover_repository_cursor_returns_next_page() -> None:
 
 
 def test_discover_service_returns_default_page_and_cursor() -> None:
-    _, author_token = _register()
+    author_id, _ = _register()
 
-    for index in range(1001):
-        _create_post(
-            author_token,
-            content=f"Post {index}",
-        )
+    # Seed records directly instead of making 1,001 sequential HTTP requests.
+    # Explicit timestamps make the expected pagination order deterministic.
+    base_time = datetime.now(timezone.utc) - timedelta(seconds=1001)
 
     db = SessionLocal()
     try:
+        db.add_all(
+            [
+                Post(
+                    author_id=UUID(author_id),
+                    content=f"Post {index}",
+                    visibility="public",
+                    created_at=base_time + timedelta(seconds=index),
+                )
+                for index in range(1001)
+            ]
+        )
+        db.commit()
+
         posts, next_cursor = list_discover_posts(db)
     finally:
         db.close()
@@ -313,13 +325,28 @@ def test_discover_endpoint_rejects_invalid_limit() -> None:
 
 
 def test_discover_endpoint_supports_cursor_pagination() -> None:
-    _, author_token = _register()
+    author_id, author_token = _register()
 
-    for index in range(21):
-        _create_post(
-            author_token,
-            content=f"Discover post {index}",
+    # Seed posts in one batch; keep the endpoint requests real.
+    # Explicit timestamps make cursor ordering deterministic.
+    base_time = datetime.now(timezone.utc) - timedelta(seconds=21)
+
+    db = SessionLocal()
+    try:
+        db.add_all(
+            [
+                Post(
+                    author_id=UUID(author_id),
+                    content=f"Discover post {index}",
+                    visibility="public",
+                    created_at=base_time + timedelta(seconds=index),
+                )
+                for index in range(21)
+            ]
         )
+        db.commit()
+    finally:
+        db.close()
 
     headers = _auth_header(author_token)
 

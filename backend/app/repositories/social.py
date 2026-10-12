@@ -1,8 +1,11 @@
+from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.models.identity import User
+from app.models.profile import Profile
 from app.models.social import Follow, FollowRequest
 
 
@@ -28,6 +31,102 @@ class SocialRepository:
 
     def delete_follow(self, follow: Follow) -> None:
         self.db.delete(follow)
+
+    def count_followers(self, *, user_id: UUID) -> int:
+        statement = (
+            select(func.count(Follow.id))
+            .join(User, User.id == Follow.follower_id)
+            .join(Profile, Profile.user_id == User.id)
+            .where(
+                Follow.following_id == user_id,
+                User.status == "active",
+            )
+        )
+        return self.db.scalar(statement) or 0
+
+    def count_following(self, *, user_id: UUID) -> int:
+        statement = (
+            select(func.count(Follow.id))
+            .join(User, User.id == Follow.following_id)
+            .join(Profile, Profile.user_id == User.id)
+            .where(
+                Follow.follower_id == user_id,
+                User.status == "active",
+            )
+        )
+        return self.db.scalar(statement) or 0
+
+    def list_followers(
+        self,
+        *,
+        user_id: UUID,
+        limit: int,
+        before_created_at: datetime | None = None,
+        before_id: UUID | None = None,
+    ) -> list[tuple[Follow, Profile]]:
+        statement = (
+            select(Follow, Profile)
+            .join(User, User.id == Follow.follower_id)
+            .join(Profile, Profile.user_id == User.id)
+            .where(
+                Follow.following_id == user_id,
+                User.status == "active",
+            )
+        )
+
+        if before_created_at is not None and before_id is not None:
+            statement = statement.where(
+                or_(
+                    Follow.created_at < before_created_at,
+                    (
+                        (Follow.created_at == before_created_at)
+                        & (Follow.id < before_id)
+                    ),
+                )
+            )
+
+        statement = (
+            statement
+            .order_by(Follow.created_at.desc(), Follow.id.desc())
+            .limit(limit)
+        )
+        return list(self.db.execute(statement).all())
+
+    def list_following(
+        self,
+        *,
+        user_id: UUID,
+        limit: int,
+        before_created_at: datetime | None = None,
+        before_id: UUID | None = None,
+    ) -> list[tuple[Follow, Profile]]:
+        statement = (
+            select(Follow, Profile)
+            .join(User, User.id == Follow.following_id)
+            .join(Profile, Profile.user_id == User.id)
+            .where(
+                Follow.follower_id == user_id,
+                User.status == "active",
+            )
+        )
+
+        if before_created_at is not None and before_id is not None:
+            statement = statement.where(
+                or_(
+                    Follow.created_at < before_created_at,
+                    (
+                        (Follow.created_at == before_created_at)
+                        & (Follow.id < before_id)
+                    ),
+                )
+            )
+
+        statement = (
+            statement
+            .order_by(Follow.created_at.desc(), Follow.id.desc())
+            .limit(limit)
+        )
+        return list(self.db.execute(statement).all())
 
     def get_follow_request(
         self,
