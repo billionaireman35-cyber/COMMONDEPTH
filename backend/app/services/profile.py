@@ -317,7 +317,8 @@ def update_profile(
     if (
         avatar_asset_id is not _UNSET
         and avatar is not _UNSET
-        and (avatar_asset_id is not None or avatar is not None)
+        and avatar_asset_id is not None
+        and avatar is not None
     ):
         raise InvalidProfileInputError(
             "Provide either an avatar URL or an avatar asset, not both."
@@ -325,7 +326,8 @@ def update_profile(
     if (
         banner_asset_id is not _UNSET
         and banner is not _UNSET
-        and (banner_asset_id is not None or banner is not None)
+        and banner_asset_id is not None
+        and banner is not None
     ):
         raise InvalidProfileInputError(
             "Provide either a banner URL or a banner asset, not both."

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
 from app.main import app
+from app.services import profile as profile_service
 from app.models.identity import Session as IdentitySession
 from app.models.identity import User
 from app.models.profile import Profile
@@ -291,6 +292,115 @@ def test_patch_profile_omitted_fields_remain_unchanged() -> None:
     assert body["display_name"] == "Updated"
     assert body["biography"] == "Keep this"
 
+
+
+@pytest.mark.parametrize(
+    ("url_field", "asset_field"),
+    [
+        ("avatar", "avatar_asset_id"),
+        ("banner", "banner_asset_id"),
+    ],
+)
+def test_patch_profile_accepts_asset_with_null_legacy_url(
+    monkeypatch,
+    url_field: str,
+    asset_field: str,
+) -> None:
+    from uuid import UUID
+
+    from app.api.dependencies import get_media_storage
+    from app.models.media import MediaAsset, MediaUpload
+
+    class ProfileTestStorage:
+        def get_read_url(self, *, storage_key: str) -> str:
+            return f"https://fake.example/read/{storage_key}"
+
+    monkeypatch.setitem(
+        app.dependency_overrides,
+        get_media_storage,
+        lambda: ProfileTestStorage(),
+    )
+
+    user_id, token = _register()
+
+    created = client.post(
+        "/api/v1/profiles",
+        headers=_auth_header(token),
+        json={"username": "assetowner"},
+    )
+    assert created.status_code == 201
+
+    asset_uuid = uuid4()
+    asset_id = str(asset_uuid)
+    now = datetime.now(timezone.utc)
+
+    db = SessionLocal()
+    try:
+        asset = MediaAsset(
+            id=asset_uuid,
+            owner_id=UUID(str(user_id)),
+            media_type="image",
+            mime_type="image/jpeg",
+            file_size=1,
+            storage_provider="profile-test",
+            storage_key=f"profile-test/{asset_uuid}",
+            status="ready",
+        )
+        upload = MediaUpload(
+            media_asset_id=asset_uuid,
+            status="completed",
+            expires_at=now + timedelta(hours=1),
+            completed_at=now,
+        )
+        db.add_all([asset, upload])
+        db.commit()
+    finally:
+        db.close()
+
+    try:
+        response = client.patch(
+            "/api/v1/profiles/me",
+            headers=_auth_header(token),
+            json={
+                url_field: None,
+                asset_field: asset_id,
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body[asset_field] == asset_id
+        assert body[url_field] == (
+            f"https://fake.example/read/profile-test/{asset_uuid}"
+        )
+    finally:
+        # Remove the profile reference before deleting its media asset.
+        db = SessionLocal()
+        try:
+            profile = db.query(Profile).filter(
+                Profile.user_id == UUID(str(user_id))
+            ).first()
+
+            if profile is not None:
+                db.query(UsernameRegistry).filter(
+                    UsernameRegistry.profile_id == profile.id
+                ).delete(synchronize_session=False)
+
+                db.query(Profile).filter(
+                    Profile.id == profile.id
+                ).delete(synchronize_session=False)
+
+            db.query(MediaUpload).filter(
+                MediaUpload.media_asset_id == asset_uuid
+            ).delete(synchronize_session=False)
+
+            db.query(MediaAsset).filter(
+                MediaAsset.id == asset_uuid
+            ).delete(synchronize_session=False)
+
+            db.commit()
+        finally:
+            db.close()
 
 def test_patch_profile_username_normalizes() -> None:
     _, token = _register()
