@@ -30,14 +30,13 @@ class PostMediaReadResponse(BaseModel):
 class PostResponse(BaseModel):
     id: UUID
     author_id: UUID
+    author_username: str
     content: str
     visibility: Literal["public", "followers"]
     created_at: datetime
     updated_at: datetime
-    like_count: int
     comment_count: int
     repost_count: int
-    viewer_has_liked: bool
     viewer_has_reposted: bool
     viewer_has_bookmarked: bool
     media: list[PostMediaReadResponse]
@@ -100,13 +99,6 @@ class ProfileRepostResponse(BaseModel):
 class ProfileRepostListResponse(BaseModel):
     items: list[ProfileRepostResponse]
     next_cursor: str | None = None
-
-    model_config = ConfigDict(extra="forbid")
-
-
-class PostLikeResponse(BaseModel):
-    liked: bool
-    like_count: int
 
     model_config = ConfigDict(extra="forbid")
 

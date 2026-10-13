@@ -48,14 +48,13 @@ def discover(
             PostResponse(
                 id=read_model.post.id,
                 author_id=read_model.post.author_id,
+                author_username=read_model.author_username,
                 content=read_model.post.content,
                 visibility=read_model.post.visibility,
                 created_at=read_model.post.created_at,
                 updated_at=read_model.post.updated_at,
-                like_count=read_model.engagement.like_count,
                 comment_count=read_model.engagement.comment_count,
                 repost_count=read_model.engagement.repost_count,
-                viewer_has_liked=read_model.engagement.viewer_has_liked,
                 viewer_has_reposted=read_model.engagement.viewer_has_reposted,
                 viewer_has_bookmarked=(
                     read_model.engagement.viewer_has_bookmarked

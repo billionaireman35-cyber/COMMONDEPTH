@@ -12,6 +12,7 @@ from app.repositories.discover import DiscoverRepository
 from app.repositories.engagement import EngagementRepository
 from app.services.content import (
     PostReadModel,
+    build_author_usernames,
     build_post_media_read_models,
 )
 
@@ -155,10 +156,12 @@ def list_discover_post_read_models(
         post_ids=post_ids,
         storage=storage,
     )
+    usernames = build_author_usernames(db, posts=posts)
 
     return [
         PostReadModel(
             post=post,
+            author_username=usernames.get(post.author_id, ""),
             engagement=summaries[post.id],
             media=media_by_post.get(post.id, []),
         )

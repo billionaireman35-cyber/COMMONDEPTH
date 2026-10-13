@@ -9,7 +9,6 @@ from app.models.content import (
     Post,
     PostBookmark,
     PostComment,
-    PostLike,
     PostRepost,
 )
 from app.models.identity import User
@@ -18,10 +17,8 @@ from app.models.social import Follow
 
 @dataclass(frozen=True)
 class PostEngagementSummary:
-    like_count: int
     comment_count: int
     repost_count: int
-    viewer_has_liked: bool
     viewer_has_reposted: bool
     viewer_has_bookmarked: bool
 
@@ -29,32 +26,6 @@ class PostEngagementSummary:
 class EngagementRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
-
-    def get_post_like(
-        self,
-        *,
-        post_id: UUID,
-        user_id: UUID,
-    ) -> PostLike | None:
-        statement = select(PostLike).where(
-            PostLike.post_id == post_id,
-            PostLike.user_id == user_id,
-        )
-        return self.db.scalar(statement)
-
-    def add_post_like(self, like: PostLike) -> PostLike:
-        self.db.add(like)
-        return like
-
-    def delete_post_like(self, like: PostLike) -> None:
-        self.db.delete(like)
-
-    def count_post_likes(self, *, post_id: UUID) -> int:
-        statement = select(func.count()).select_from(PostLike).where(
-            PostLike.post_id == post_id,
-        )
-        return int(self.db.scalar(statement) or 0)
-
 
     def get_post_bookmark(
         self,
@@ -330,18 +301,6 @@ class EngagementRepository:
 
         unique_post_ids = list(dict.fromkeys(post_ids))
 
-        like_counts = {
-            post_id: int(count)
-            for post_id, count in self.db.execute(
-                select(
-                    PostLike.post_id,
-                    func.count().label("like_count"),
-                )
-                .where(PostLike.post_id.in_(unique_post_ids))
-                .group_by(PostLike.post_id)
-            ).all()
-        }
-
         comment_counts = {
             post_id: int(count)
             for post_id, count in self.db.execute(
@@ -354,16 +313,6 @@ class EngagementRepository:
                     PostComment.deleted_at.is_(None),
                 )
                 .group_by(PostComment.post_id)
-            ).all()
-        }
-
-        viewer_liked_post_ids = {
-            post_id
-            for (post_id,) in self.db.execute(
-                select(PostLike.post_id).where(
-                    PostLike.post_id.in_(unique_post_ids),
-                    PostLike.user_id == viewer_user_id,
-                )
             ).all()
         }
 
@@ -401,10 +350,8 @@ class EngagementRepository:
 
         return {
             post_id: PostEngagementSummary(
-                like_count=like_counts.get(post_id, 0),
                 comment_count=comment_counts.get(post_id, 0),
                 repost_count=repost_counts.get(post_id, 0),
-                viewer_has_liked=post_id in viewer_liked_post_ids,
                 viewer_has_reposted=post_id in viewer_reposted_post_ids,
                 viewer_has_bookmarked=(
                     post_id in viewer_bookmarked_post_ids

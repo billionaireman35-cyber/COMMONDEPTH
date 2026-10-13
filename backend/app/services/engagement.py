@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models.content import PostBookmark, PostComment, PostLike, PostRepost
+from app.models.content import PostBookmark, PostComment, PostRepost
 from app.repositories.engagement import EngagementRepository
 from app.repositories.identity import IdentityRepository
 from app.services.content import (
@@ -24,10 +24,6 @@ class EngagementUserInactiveError(EngagementError):
     """Raised when an inactive user attempts an engagement action."""
 
 
-class PostLikeError(EngagementError):
-    """Raised when a post-like operation cannot be completed."""
-
-
 def _require_active_user(
     db: Session,
     *,
@@ -37,84 +33,6 @@ def _require_active_user(
 
     if user is None or user.status != "active":
         raise EngagementUserInactiveError("User is not active.")
-
-
-def like_post(
-    db: Session,
-    *,
-    post_id: UUID,
-    user_id: UUID,
-) -> PostLike:
-    _require_active_user(db, user_id=user_id)
-
-    try:
-        get_post(
-            db,
-            post_id=post_id,
-            viewer_user_id=user_id,
-        )
-    except (ContentError,):
-        raise
-
-    repository = EngagementRepository(db)
-    existing = repository.get_post_like(
-        post_id=post_id,
-        user_id=user_id,
-    )
-
-    if existing is not None:
-        return existing
-
-    like = PostLike(
-        post_id=post_id,
-        user_id=user_id,
-    )
-    repository.add_post_like(like)
-
-    try:
-        db.flush()
-        db.commit()
-        db.refresh(like)
-        return like
-    except Exception:
-        db.rollback()
-        raise PostLikeError("Post could not be liked.") from None
-
-
-def unlike_post(
-    db: Session,
-    *,
-    post_id: UUID,
-    user_id: UUID,
-) -> None:
-    _require_active_user(db, user_id=user_id)
-
-    try:
-        get_post(
-            db,
-            post_id=post_id,
-            viewer_user_id=user_id,
-        )
-    except (ContentError,):
-        raise
-
-    repository = EngagementRepository(db)
-    existing = repository.get_post_like(
-        post_id=post_id,
-        user_id=user_id,
-    )
-
-    if existing is None:
-        return
-
-    repository.delete_post_like(existing)
-
-    try:
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise PostLikeError("Post could not be unliked.") from None
-
 
 
 class PostBookmarkError(EngagementError):
@@ -288,23 +206,6 @@ def get_post_repost_count(
         viewer_user_id=viewer_user_id,
     )
     return EngagementRepository(db).count_post_reposts(
-        post_id=post_id,
-    )
-
-
-def get_post_like_count(
-    db: Session,
-    *,
-    post_id: UUID,
-    viewer_user_id: UUID,
-) -> int:
-    get_post(
-        db,
-        post_id=post_id,
-        viewer_user_id=viewer_user_id,
-    )
-
-    return EngagementRepository(db).count_post_likes(
         post_id=post_id,
     )
 

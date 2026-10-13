@@ -22,7 +22,6 @@ from app.schemas.content import (
     ProfileRepostListResponse,
     ProfileRepostResponse,
     PostCreateRequest,
-    PostLikeResponse,
     PostListResponse,
     PostBookmarkResponse,
     PostRepostResponse,
@@ -58,20 +57,16 @@ from app.services.engagement import (
     PostCommentError,
     PostCommentNotFoundError,
     PostCommentUnauthorizedError,
-    PostLikeError,
     PostBookmarkError,
     PostRepostError,
     comment_on_post,
     delete_post_comment,
-    get_post_like_count,
     get_post_repost_count,
-    like_post,
     list_post_comments,
     repost_post,
     bookmark_post,
     unbookmark_post,
     unrepost_post,
-    unlike_post,
 )
 
 from app.services.session_authentication import AuthenticatedSession
@@ -87,14 +82,13 @@ def _post_response(read_model: PostReadModel) -> PostResponse:
     return PostResponse(
         id=post.id,
         author_id=post.author_id,
+        author_username=read_model.author_username,
         content=post.content,
         visibility=post.visibility,
         created_at=post.created_at,
         updated_at=post.updated_at,
-        like_count=engagement.like_count,
         comment_count=engagement.comment_count,
         repost_count=engagement.repost_count,
-        viewer_has_liked=engagement.viewer_has_liked,
         viewer_has_reposted=engagement.viewer_has_reposted,
         viewer_has_bookmarked=engagement.viewer_has_bookmarked,
         media=[
@@ -394,98 +388,6 @@ def get(
         ) from None
 
     return _post_response(read_model)
-
-
-@router.post(
-    "/{post_id}/like",
-    response_model=PostLikeResponse,
-)
-def like(
-    post_id: UUID,
-    authenticated: AuthenticatedSession = Depends(
-        get_authenticated_session
-    ),
-    db: Session = Depends(get_db),
-) -> PostLikeResponse:
-    try:
-        like_post(
-            db,
-            post_id=post_id,
-            user_id=authenticated.user_id,
-        )
-        count = get_post_like_count(
-            db,
-            post_id=post_id,
-            viewer_user_id=authenticated.user_id,
-        )
-    except EngagementUserInactiveError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(exc),
-        ) from None
-    except PostLikeError:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Post could not be liked.",
-        ) from None
-    except PostNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found.",
-        ) from None
-    except PostAccessDeniedError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found.",
-        ) from None
-
-    return PostLikeResponse(liked=True, like_count=count)
-
-
-@router.delete(
-    "/{post_id}/like",
-    response_model=PostLikeResponse,
-)
-def unlike(
-    post_id: UUID,
-    authenticated: AuthenticatedSession = Depends(
-        get_authenticated_session
-    ),
-    db: Session = Depends(get_db),
-) -> PostLikeResponse:
-    try:
-        unlike_post(
-            db,
-            post_id=post_id,
-            user_id=authenticated.user_id,
-        )
-        count = get_post_like_count(
-            db,
-            post_id=post_id,
-            viewer_user_id=authenticated.user_id,
-        )
-    except EngagementUserInactiveError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(exc),
-        ) from None
-    except PostLikeError:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Post could not be unliked.",
-        ) from None
-    except PostNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found.",
-        ) from None
-    except PostAccessDeniedError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Post not found.",
-        ) from None
-
-    return PostLikeResponse(liked=False, like_count=count)
 
 
 @router.post(

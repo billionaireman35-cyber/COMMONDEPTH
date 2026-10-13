@@ -24,6 +24,16 @@ class ProfileRepository:
         statement = select(Profile).where(Profile.username == username)
         return self.db.scalar(statement)
 
+    def get_usernames_by_user_ids(
+        self,
+        user_ids: set[UUID],
+    ) -> dict[UUID, str]:
+        if not user_ids:
+            return {}
+        statement = select(Profile).where(Profile.user_id.in_(user_ids))
+        profiles = self.db.scalars(statement).all()
+        return {profile.user_id: profile.username for profile in profiles}
+
     def add(self, profile: Profile) -> Profile:
         self.db.add(profile)
         return profile

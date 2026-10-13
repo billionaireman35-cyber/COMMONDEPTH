@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from app.core.database import SessionLocal
 from app.main import app
 from app.models.content import Post, PostBookmark, PostComment, PostLike, PostRepost
+from app.models.media import MediaAsset, MediaUpload, PostMedia
 from app.models.identity import User
 from app.models.profile import Profile
 from app.models.username_registry import UsernameRegistry
@@ -28,9 +29,12 @@ def clean_discover() -> None:
         db.query(PostLike).delete()
         db.query(PostBookmark).delete()
         db.query(PostRepost).delete()
+        db.query(PostMedia).delete()
+        db.query(MediaUpload).delete()
         db.query(Post).delete()
         db.query(UsernameRegistry).delete()
         db.query(Profile).delete()
+        db.query(MediaAsset).delete()
         db.commit()
     finally:
         db.close()

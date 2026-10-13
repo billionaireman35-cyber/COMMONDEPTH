@@ -689,12 +689,6 @@ def test_feed_api_returns_engagement_and_ready_media_read_model() -> None:
 
     db = _db()
     try:
-        db.add(
-            PostLike(
-                post_id=post_id,
-                user_id=UUID(viewer_id),
-            )
-        )
 
         commenter_id, _ = _register()
         db.add(
@@ -773,10 +767,8 @@ def test_feed_api_returns_engagement_and_ready_media_read_model() -> None:
     item = response.json()["items"][0]
 
     assert item["id"] == str(post_id)
-    assert item["like_count"] == 1
     assert item["comment_count"] == 1
     assert item["repost_count"] == 0
-    assert item["viewer_has_liked"] is True
     assert item["viewer_has_reposted"] is False
 
     assert [media["position"] for media in item["media"]] == [0, 1]

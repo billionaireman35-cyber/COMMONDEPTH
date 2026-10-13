@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from app.core.database import SessionLocal
 from app.main import app
 from app.models.content import Post, PostBookmark, PostComment, PostLike, PostRepost
+from app.models.media import MediaAsset, MediaUpload, PostMedia
 from app.models.profile import Profile
 from app.models.username_registry import UsernameRegistry
 from app.services.content import InvalidPostListError, list_posts_by_author
@@ -22,9 +23,12 @@ def clean_content() -> None:
         db.query(PostLike).delete()
         db.query(PostBookmark).delete()
         db.query(PostRepost).delete()
+        db.query(PostMedia).delete()
+        db.query(MediaUpload).delete()
         db.query(Post).delete()
         db.query(UsernameRegistry).delete()
         db.query(Profile).delete()
+        db.query(MediaAsset).delete()
         db.commit()
     finally:
         db.close()
@@ -75,10 +79,8 @@ def test_create_public_post() -> None:
     assert body["id"]
     assert body["created_at"]
     assert body["updated_at"]
-    assert body["like_count"] == 0
     assert body["comment_count"] == 0
     assert body["repost_count"] == 0
-    assert body["viewer_has_liked"] is False
     assert body["viewer_has_reposted"] is False
 
 
@@ -792,143 +794,16 @@ def test_delete_post_twice_returns_not_found() -> None:
     ).status_code == 404
 
 
-def test_like_post() -> None:
-    _, author_token = _register()
-    _, viewer_token = _register()
-    post = _create_post(author_token)
-
-    response = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(viewer_token),
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "liked": True,
-        "like_count": 1,
-    }
 
 
-def test_get_post_includes_real_like_count_and_viewer_like_state() -> None:
-    _, author_token = _register()
-    _, viewer_token = _register()
-    _, other_token = _register()
-    post = _create_post(author_token)
-
-    like_response = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(viewer_token),
-    )
-    assert like_response.status_code == 200
-
-    viewer_response = client.get(
-        f"/api/v1/posts/{post["id"]}",
-        headers=_auth_header(viewer_token),
-    )
-    assert viewer_response.status_code == 200
-    viewer_body = viewer_response.json()
-
-    assert viewer_body["like_count"] == 1
-    assert viewer_body["comment_count"] == 0
-    assert viewer_body["repost_count"] == 0
-    assert viewer_body["viewer_has_liked"] is True
-    assert viewer_body["viewer_has_reposted"] is False
-
-    other_response = client.get(
-        f"/api/v1/posts/{post["id"]}",
-        headers=_auth_header(other_token),
-    )
-    assert other_response.status_code == 200
-    other_body = other_response.json()
-
-    assert other_body["like_count"] == 1
-    assert other_body["comment_count"] == 0
-    assert other_body["repost_count"] == 0
-    assert other_body["viewer_has_liked"] is False
-    assert other_body["viewer_has_reposted"] is False
 
 
-def test_like_post_is_idempotent() -> None:
-    _, author_token = _register()
-    _, viewer_token = _register()
-    post = _create_post(author_token)
-
-    first = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(viewer_token),
-    )
-    second = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(viewer_token),
-    )
-
-    assert first.status_code == 200
-    assert second.status_code == 200
-    assert second.json() == {
-        "liked": True,
-        "like_count": 1,
-    }
 
 
-def test_multiple_users_can_like_post() -> None:
-    _, author_token = _register()
-    _, first_token = _register()
-    _, second_token = _register()
-    post = _create_post(author_token)
-
-    first = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(first_token),
-    )
-    second = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(second_token),
-    )
-
-    assert first.status_code == 200
-    assert first.json()["like_count"] == 1
-    assert second.status_code == 200
-    assert second.json()["like_count"] == 2
 
 
-def test_unlike_post() -> None:
-    _, author_token = _register()
-    _, viewer_token = _register()
-    post = _create_post(author_token)
-
-    like = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(viewer_token),
-    )
-    assert like.status_code == 200
-
-    response = client.delete(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(viewer_token),
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "liked": False,
-        "like_count": 0,
-    }
 
 
-def test_unlike_post_without_existing_like_is_idempotent() -> None:
-    _, author_token = _register()
-    _, viewer_token = _register()
-    post = _create_post(author_token)
-
-    response = client.delete(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(viewer_token),
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "liked": False,
-        "like_count": 0,
-    }
 
 
 
@@ -1534,109 +1409,16 @@ def test_repost_followers_only_post_denies_unrelated_user() -> None:
     assert response.status_code == 404
 
 
-def test_like_post_requires_authentication() -> None:
-    _, author_token = _register()
-    post = _create_post(author_token)
-
-    response = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-    )
-
-    assert response.status_code == 401
 
 
-def test_like_followers_only_post_denies_unrelated_user() -> None:
-    _, author_token = _register()
-    _, viewer_token = _register()
-    post = _create_post(
-        author_token,
-        visibility="followers",
-    )
-
-    response = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(viewer_token),
-    )
-
-    assert response.status_code == 404
 
 
-def test_like_followers_only_post_allows_accepted_follower() -> None:
-    author_id, author_token = _register()
-    _, follower_token = _register()
-
-    profile = client.post(
-        "/api/v1/profiles",
-        headers=_auth_header(author_token),
-        json={
-            "username": f"user{author_id.replace('-', '')[:20]}",
-            "display_name": "Author",
-        },
-    )
-    assert profile.status_code == 201
-    username = profile.json()["username"]
-
-    follow = client.post(
-        f"/api/v1/social/follow/{username}",
-        headers=_auth_header(follower_token),
-    )
-    assert follow.status_code in {200, 201}
-
-    post = _create_post(
-        author_token,
-        visibility="followers",
-    )
-
-    response = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(follower_token),
-    )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "liked": True,
-        "like_count": 1,
-    }
 
 
-def test_like_missing_post_returns_404() -> None:
-    _, viewer_token = _register()
-
-    response = client.post(
-        f"/api/v1/posts/{uuid4()}/like",
-        headers=_auth_header(viewer_token),
-    )
-
-    assert response.status_code == 404
 
 
-def test_like_post_rejects_invalid_uuid() -> None:
-    _, viewer_token = _register()
-
-    response = client.post(
-        "/api/v1/posts/not-a-uuid/like",
-        headers=_auth_header(viewer_token),
-    )
-
-    assert response.status_code == 422
 
 
-def test_like_deleted_post_returns_404() -> None:
-    _, token = _register()
-    post = _create_post(token)
-
-    delete_response = client.delete(
-        f"/api/v1/posts/{post["id"]}",
-        headers=_auth_header(token),
-    )
-    assert delete_response.status_code == 204
-
-    response = client.post(
-        f"/api/v1/posts/{post["id"]}/like",
-        headers=_auth_header(token),
-    )
-
-    assert response.status_code == 404
 
 
 def test_create_comment_returns_real_comment() -> None:
@@ -1680,10 +1462,8 @@ def test_get_post_includes_real_comment_count_and_excludes_deleted_comments() ->
     assert before_delete.status_code == 200
     before_body = before_delete.json()
 
-    assert before_body["like_count"] == 0
     assert before_body["comment_count"] == 1
     assert before_body["repost_count"] == 0
-    assert before_body["viewer_has_liked"] is False
     assert before_body["viewer_has_reposted"] is False
 
     delete_response = client.delete(
@@ -1699,10 +1479,8 @@ def test_get_post_includes_real_comment_count_and_excludes_deleted_comments() ->
     assert after_delete.status_code == 200
     after_body = after_delete.json()
 
-    assert after_body["like_count"] == 0
     assert after_body["comment_count"] == 0
     assert after_body["repost_count"] == 0
-    assert after_body["viewer_has_liked"] is False
     assert after_body["viewer_has_reposted"] is False
 
 
