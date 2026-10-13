@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import exists, or_, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.content import Post
@@ -67,3 +67,39 @@ class ContentRepository:
             )
 
         return list(self.db.scalars(statement).all())
+
+    def count_by_author(
+        self,
+        *,
+        author_id: UUID,
+        viewer_user_id: UUID | None,
+    ) -> int:
+        """Count non-deleted posts visible to this viewer."""
+        statement = (
+            select(func.count(Post.id))
+            .join(User, User.id == Post.author_id)
+            .where(
+                Post.author_id == author_id,
+                User.status == "active",
+                Post.deleted_at.is_(None),
+            )
+        )
+
+        if viewer_user_id is None:
+            statement = statement.where(Post.visibility == "public")
+        else:
+            follower_exists = exists(
+                select(Follow.id).where(
+                    Follow.follower_id == viewer_user_id,
+                    Follow.following_id == Post.author_id,
+                )
+            )
+            statement = statement.where(
+                or_(
+                    Post.visibility == "public",
+                    Post.author_id == viewer_user_id,
+                    follower_exists,
+                )
+            )
+
+        return int(self.db.scalar(statement) or 0)

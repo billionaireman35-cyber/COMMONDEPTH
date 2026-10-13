@@ -47,6 +47,7 @@ class ProfileResponse(BaseModel):
     verified_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    post_count: int = 0
 
     model_config = ConfigDict(from_attributes=True)
 

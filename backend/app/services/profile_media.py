@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.integrations.media_storage.protocol import MediaStorage
 from app.models.media import MediaAsset
 from app.models.profile import Profile
+from app.repositories.content import ContentRepository
 from app.repositories.media import MediaRepository
 from app.schemas.profile import (
     ProfileDiscoveryResponse,
@@ -59,9 +60,14 @@ def serialize_profile_response(
     profile: Profile,
     *,
     storage: MediaStorage,
+    viewer_user_id: UUID | None,
 ) -> ProfileResponse:
     """Build a full profile response with fresh signed image URLs."""
     response = ProfileResponse.model_validate(profile)
+    response.post_count = ContentRepository(db).count_by_author(
+        author_id=profile.user_id,
+        viewer_user_id=viewer_user_id,
+    )
     repository = MediaRepository(db)
 
     if profile.avatar_asset_id is not None:

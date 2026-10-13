@@ -217,6 +217,108 @@ class EngagementRepository:
         return int(self.db.scalar(statement) or 0)
 
 
+    def list_profile_replies(
+        self,
+        *,
+        user_id: UUID,
+        viewer_user_id: UUID,
+        limit: int,
+        cursor_created_at: datetime | None = None,
+        cursor_comment_id: UUID | None = None,
+    ) -> list[tuple[PostComment, Post]]:
+        follower_exists = exists(
+            select(Follow.id).where(
+                Follow.follower_id == viewer_user_id,
+                Follow.following_id == Post.author_id,
+            )
+        )
+        statement = (
+            select(PostComment, Post)
+            .join(Post, Post.id == PostComment.post_id)
+            .join(User, User.id == Post.author_id)
+            .where(
+                PostComment.user_id == user_id,
+                PostComment.deleted_at.is_(None),
+                Post.deleted_at.is_(None),
+                User.status == "active",
+                or_(
+                    Post.visibility == "public",
+                    Post.author_id == viewer_user_id,
+                    follower_exists,
+                ),
+            )
+            .order_by(
+                PostComment.created_at.desc(),
+                PostComment.id.desc(),
+            )
+            .limit(limit)
+        )
+
+        if cursor_created_at is not None and cursor_comment_id is not None:
+            statement = statement.where(
+                (PostComment.created_at < cursor_created_at)
+                | (
+                    (PostComment.created_at == cursor_created_at)
+                    & (PostComment.id < cursor_comment_id)
+                )
+            )
+
+        return [
+            (comment, post)
+            for comment, post in self.db.execute(statement).all()
+        ]
+
+    def list_profile_reposts(
+        self,
+        *,
+        user_id: UUID,
+        viewer_user_id: UUID,
+        limit: int,
+        cursor_created_at: datetime | None = None,
+        cursor_repost_id: UUID | None = None,
+    ) -> list[tuple[PostRepost, Post]]:
+        follower_exists = exists(
+            select(Follow.id).where(
+                Follow.follower_id == viewer_user_id,
+                Follow.following_id == Post.author_id,
+            )
+        )
+
+        statement = (
+            select(PostRepost, Post)
+            .join(Post, Post.id == PostRepost.post_id)
+            .join(User, User.id == Post.author_id)
+            .where(
+                PostRepost.user_id == user_id,
+                Post.deleted_at.is_(None),
+                User.status == "active",
+                or_(
+                    Post.visibility == "public",
+                    Post.author_id == viewer_user_id,
+                    follower_exists,
+                ),
+            )
+            .order_by(
+                PostRepost.created_at.desc(),
+                PostRepost.id.desc(),
+            )
+            .limit(limit)
+        )
+
+        if cursor_created_at is not None and cursor_repost_id is not None:
+            statement = statement.where(
+                (PostRepost.created_at < cursor_created_at)
+                | (
+                    (PostRepost.created_at == cursor_created_at)
+                    & (PostRepost.id < cursor_repost_id)
+                )
+            )
+
+        return [
+            (repost, post)
+            for repost, post in self.db.execute(statement).all()
+        ]
+
     def get_post_engagement_summaries(
         self,
         *,

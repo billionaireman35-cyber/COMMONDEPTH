@@ -69,6 +69,41 @@ class PostCommentListResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+
+class ProfileReplyResponse(BaseModel):
+    id: UUID
+    post_id: UUID
+    user_id: UUID
+    content: str
+    created_at: datetime
+    updated_at: datetime
+    post: PostResponse
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProfileReplyListResponse(BaseModel):
+    items: list[ProfileReplyResponse]
+    next_cursor: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProfileRepostResponse(BaseModel):
+    repost_id: UUID
+    reposted_at: datetime
+    post: PostResponse
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProfileRepostListResponse(BaseModel):
+    items: list[ProfileRepostResponse]
+    next_cursor: str | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class PostLikeResponse(BaseModel):
     liked: bool
     like_count: int

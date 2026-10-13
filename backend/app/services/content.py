@@ -7,7 +7,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
-from app.models.content import Post
+from app.models.content import Post, PostComment, PostRepost
 from app.integrations.media_storage import MediaStorage
 from app.repositories.media import MediaRepository
 from app.repositories.content import ContentRepository
@@ -62,6 +62,22 @@ class PostNotFoundError(ContentError):
 
 class InvalidPostListError(ContentError):
     pass
+
+
+class InvalidProfileActivityListError(ContentError):
+    pass
+
+
+@dataclass(frozen=True)
+class ProfileReplyReadModel:
+    comment: PostComment
+    post: PostReadModel
+
+
+@dataclass(frozen=True)
+class ProfileRepostReadModel:
+    repost: PostRepost
+    post: PostReadModel
 
 
 POST_DEFAULT_LIMIT = 20
@@ -352,6 +368,232 @@ def list_posts_by_author_read_model(
             media=media_by_post.get(post.id, []),
         )
         for post in posts
+    ], next_cursor
+
+
+PROFILE_ACTIVITY_DEFAULT_LIMIT = 20
+PROFILE_ACTIVITY_MAX_LIMIT = 50
+
+
+def _encode_profile_activity_cursor(
+    *,
+    created_at: datetime,
+    item_id: UUID,
+    kind: str,
+) -> str:
+    payload = {
+        "created_at": created_at.isoformat(),
+        "id": str(item_id),
+        "kind": kind,
+    }
+    raw = json.dumps(
+        payload,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_profile_activity_cursor(
+    cursor: str,
+    *,
+    expected_kind: str,
+) -> tuple[datetime, UUID]:
+    try:
+        padded = cursor + "=" * (-len(cursor) % 4)
+        payload = json.loads(
+            base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        )
+
+        if not isinstance(payload, dict):
+            raise ValueError("Invalid cursor payload.")
+
+        if payload.get("kind") != expected_kind:
+            raise ValueError("Cursor belongs to another activity list.")
+
+        created_at = datetime.fromisoformat(payload["created_at"])
+        item_id = UUID(payload["id"])
+
+        if created_at.tzinfo is None:
+            raise ValueError("Cursor timestamp must include a timezone.")
+
+        return created_at, item_id
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        UnicodeDecodeError,
+        binascii.Error,
+    ):
+        raise InvalidProfileActivityListError(
+            "Invalid profile activity cursor."
+        ) from None
+
+
+def _validate_profile_activity_request(
+    db: Session,
+    *,
+    user_id: UUID,
+    limit: int,
+) -> None:
+    if limit < 1 or limit > PROFILE_ACTIVITY_MAX_LIMIT:
+        raise InvalidProfileActivityListError(
+            "Invalid profile activity list limit."
+        )
+
+    profile_owner = IdentityRepository(db).get_user(user_id)
+    if profile_owner is None or profile_owner.status != "active":
+        raise InactiveUserError("Profile not found.")
+
+
+def _build_profile_activity_post_read_models(
+    db: Session,
+    *,
+    posts: list[Post],
+    viewer_user_id: UUID,
+    storage: MediaStorage,
+) -> dict[UUID, PostReadModel]:
+    post_ids = [post.id for post in posts]
+
+    summaries = EngagementRepository(db).get_post_engagement_summaries(
+        post_ids=post_ids,
+        viewer_user_id=viewer_user_id,
+    )
+    media_by_post = build_post_media_read_models(
+        db,
+        post_ids=post_ids,
+        storage=storage,
+    )
+
+    return {
+        post.id: PostReadModel(
+            post=post,
+            engagement=summaries[post.id],
+            media=media_by_post.get(post.id, []),
+        )
+        for post in posts
+    }
+
+
+def list_profile_replies_read_model(
+    db: Session,
+    *,
+    user_id: UUID,
+    viewer_user_id: UUID,
+    storage: MediaStorage,
+    limit: int = PROFILE_ACTIVITY_DEFAULT_LIMIT,
+    cursor: str | None = None,
+) -> tuple[list[ProfileReplyReadModel], str | None]:
+    _validate_profile_activity_request(
+        db,
+        user_id=user_id,
+        limit=limit,
+    )
+
+    cursor_created_at = None
+    cursor_comment_id = None
+
+    if cursor is not None:
+        cursor_created_at, cursor_comment_id = (
+            _decode_profile_activity_cursor(
+                cursor,
+                expected_kind="reply",
+            )
+        )
+
+    rows = EngagementRepository(db).list_profile_replies(
+        user_id=user_id,
+        viewer_user_id=viewer_user_id,
+        limit=limit + 1,
+        cursor_created_at=cursor_created_at,
+        cursor_comment_id=cursor_comment_id,
+    )
+
+    next_cursor = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last_comment, _ = rows[-1]
+        next_cursor = _encode_profile_activity_cursor(
+            created_at=last_comment.created_at,
+            item_id=last_comment.id,
+            kind="reply",
+        )
+
+    posts = [post for _, post in rows]
+    post_models = _build_profile_activity_post_read_models(
+        db,
+        posts=posts,
+        viewer_user_id=viewer_user_id,
+        storage=storage,
+    )
+
+    return [
+        ProfileReplyReadModel(
+            comment=comment,
+            post=post_models[post.id],
+        )
+        for comment, post in rows
+    ], next_cursor
+
+
+def list_profile_reposts_read_model(
+    db: Session,
+    *,
+    user_id: UUID,
+    viewer_user_id: UUID,
+    storage: MediaStorage,
+    limit: int = PROFILE_ACTIVITY_DEFAULT_LIMIT,
+    cursor: str | None = None,
+) -> tuple[list[ProfileRepostReadModel], str | None]:
+    _validate_profile_activity_request(
+        db,
+        user_id=user_id,
+        limit=limit,
+    )
+
+    cursor_created_at = None
+    cursor_repost_id = None
+
+    if cursor is not None:
+        cursor_created_at, cursor_repost_id = (
+            _decode_profile_activity_cursor(
+                cursor,
+                expected_kind="repost",
+            )
+        )
+
+    rows = EngagementRepository(db).list_profile_reposts(
+        user_id=user_id,
+        viewer_user_id=viewer_user_id,
+        limit=limit + 1,
+        cursor_created_at=cursor_created_at,
+        cursor_repost_id=cursor_repost_id,
+    )
+
+    next_cursor = None
+    if len(rows) > limit:
+        rows = rows[:limit]
+        last_repost, _ = rows[-1]
+        next_cursor = _encode_profile_activity_cursor(
+            created_at=last_repost.created_at,
+            item_id=last_repost.id,
+            kind="repost",
+        )
+
+    posts = [post for _, post in rows]
+    post_models = _build_profile_activity_post_read_models(
+        db,
+        posts=posts,
+        viewer_user_id=viewer_user_id,
+        storage=storage,
+    )
+
+    return [
+        ProfileRepostReadModel(
+            repost=repost,
+            post=post_models[post.id],
+        )
+        for repost, post in rows
     ], next_cursor
 
 

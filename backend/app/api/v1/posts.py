@@ -17,6 +17,10 @@ from app.schemas.content import (
     PostCommentCreateRequest,
     PostCommentListResponse,
     PostCommentResponse,
+    ProfileReplyListResponse,
+    ProfileReplyResponse,
+    ProfileRepostListResponse,
+    ProfileRepostResponse,
     PostCreateRequest,
     PostLikeResponse,
     PostListResponse,
@@ -36,6 +40,9 @@ from app.services.content import (
     InactiveUserError,
     InvalidPostInputError,
     InvalidPostListError,
+    InvalidProfileActivityListError,
+    list_profile_replies_read_model,
+    list_profile_reposts_read_model,
     PostAccessDeniedError,
     PostNotFoundError,
     PostReadModel,
@@ -185,6 +192,100 @@ def list_user_posts(
 
     return PostListResponse(
         items=[_post_response(read_model) for read_model in read_models],
+        next_cursor=next_cursor,
+    )
+
+
+@router.get(
+    "/user/{user_id}/replies",
+    response_model=ProfileReplyListResponse,
+)
+def list_user_replies(
+    user_id: UUID,
+    limit: int = 20,
+    cursor: str | None = None,
+    authenticated: AuthenticatedSession = Depends(get_authenticated_session),
+    db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
+) -> ProfileReplyListResponse:
+    try:
+        items, next_cursor = list_profile_replies_read_model(
+            db,
+            user_id=user_id,
+            viewer_user_id=authenticated.user_id,
+            storage=storage,
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidProfileActivityListError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from None
+    except InactiveUserError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found.",
+        ) from None
+
+    return ProfileReplyListResponse(
+        items=[
+            ProfileReplyResponse(
+                id=item.comment.id,
+                post_id=item.comment.post_id,
+                user_id=item.comment.user_id,
+                content=item.comment.content,
+                created_at=item.comment.created_at,
+                updated_at=item.comment.updated_at,
+                post=_post_response(item.post),
+            )
+            for item in items
+        ],
+        next_cursor=next_cursor,
+    )
+
+
+@router.get(
+    "/user/{user_id}/reposts",
+    response_model=ProfileRepostListResponse,
+)
+def list_user_reposts(
+    user_id: UUID,
+    limit: int = 20,
+    cursor: str | None = None,
+    authenticated: AuthenticatedSession = Depends(get_authenticated_session),
+    db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
+) -> ProfileRepostListResponse:
+    try:
+        items, next_cursor = list_profile_reposts_read_model(
+            db,
+            user_id=user_id,
+            viewer_user_id=authenticated.user_id,
+            storage=storage,
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidProfileActivityListError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from None
+    except InactiveUserError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found.",
+        ) from None
+
+    return ProfileRepostListResponse(
+        items=[
+            ProfileRepostResponse(
+                repost_id=item.repost.id,
+                reposted_at=item.repost.created_at,
+                post=_post_response(item.post),
+            )
+            for item in items
+        ],
         next_cursor=next_cursor,
     )
 

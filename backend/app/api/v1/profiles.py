@@ -114,7 +114,10 @@ def create(
             detail="Profile could not be created.",
         ) from None
 
-    return serialize_profile_response(db, profile, storage=storage)
+    return serialize_profile_response(
+        db, profile, storage=storage,
+        viewer_user_id=profile.user_id,
+    )
 
 
 @router.get(
@@ -140,7 +143,10 @@ def me(
             detail=str(exc),
         ) from None
 
-    return serialize_profile_response(db, profile, storage=storage)
+    return serialize_profile_response(
+        db, profile, storage=storage,
+        viewer_user_id=profile.user_id,
+    )
 
 
 @router.patch(
@@ -212,7 +218,10 @@ def update_me(
             detail="Profile could not be updated.",
         ) from None
 
-    return serialize_profile_response(db, profile, storage=storage)
+    return serialize_profile_response(
+        db, profile, storage=storage,
+        viewer_user_id=profile.user_id,
+    )
 
 
 @router.get(
@@ -297,4 +306,7 @@ def get_by_username(
             db, profile, storage=storage
         )
 
-    return serialize_profile_response(db, profile, storage=storage)
+    return serialize_profile_response(
+        db, profile, storage=storage,
+        viewer_user_id=viewer_user_id,
+    )
