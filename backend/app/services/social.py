@@ -474,6 +474,34 @@ def _validate_relationship_limit(limit: int) -> None:
         raise InvalidSocialCursorError("Invalid relationship page limit.")
 
 
+def get_viewer_follow_status(
+    db: Session,
+    *,
+    username: str,
+    viewer_user_id: UUID,
+) -> str:
+    profile = _get_target_profile(db, username=username)
+    _get_active_target_user(db, profile=profile)
+
+    repository = SocialRepository(db)
+
+    viewer_follow = repository.get_follow(
+        follower_id=viewer_user_id,
+        following_id=profile.user_id,
+    )
+    if viewer_follow is not None:
+        return "following"
+
+    viewer_request = repository.get_follow_request(
+        requester_id=viewer_user_id,
+        target_id=profile.user_id,
+    )
+    if viewer_request is not None and viewer_request.status == "pending":
+        return "pending"
+
+    return "none"
+
+
 def get_relationship_counts(
     db: Session,
     *,

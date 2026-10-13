@@ -10,6 +10,7 @@ from app.schemas.social import (
     FollowersResponse,
     FollowingResponse,
     FollowResponse,
+    FollowStatusResponse,
     SocialRelationshipCountsResponse,
 )
 from app.services.profile import InvalidProfileInputError
@@ -34,6 +35,7 @@ from app.services.social import (
     InvalidSocialCursorError,
     SocialRelationshipAccessDeniedError,
     get_relationship_counts,
+    get_viewer_follow_status,
     list_followers,
     list_following,
 )
@@ -245,6 +247,37 @@ def cancel_request(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Follow request could not be cancelled.",
         ) from None
+
+
+@router.get(
+    "/follow-status/{username}",
+    response_model=FollowStatusResponse,
+)
+def viewer_follow_status(
+    username: str,
+    authenticated: AuthenticatedSession = Depends(
+        get_authenticated_session
+    ),
+    db: Session = Depends(get_db),
+) -> FollowStatusResponse:
+    try:
+        result = get_viewer_follow_status(
+            db,
+            username=username,
+            viewer_user_id=authenticated.user_id,
+        )
+    except (SocialTargetNotFoundError, SocialTargetInactiveError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Profile not found.",
+        ) from None
+    except InvalidProfileInputError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from None
+
+    return FollowStatusResponse(status=result)
 
 
 @router.get(

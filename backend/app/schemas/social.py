@@ -1,3 +1,4 @@
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -18,6 +19,12 @@ class FollowRequestResponse(BaseModel):
     status: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class FollowStatusResponse(BaseModel):
+    status: Literal["none", "following", "pending"]
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class SocialRelationshipCountsResponse(BaseModel):
