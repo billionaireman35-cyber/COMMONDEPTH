@@ -4,7 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.dependencies import get_authenticated_session
+from app.api.dependencies import (
+    get_authenticated_session,
+    get_media_storage,
+)
+from app.integrations.media_storage.protocol import MediaStorage
+from app.repositories.media import MediaRepository
 from app.core.database import get_db
 from app.models.messaging import Conversation, DirectMessage
 from app.models.profile import Profile
@@ -40,20 +45,35 @@ def _message_response(message: DirectMessage) -> DirectMessageResponse:
     )
 
 
-def _participant_identity(db: Session, user_id) -> ConversationParticipantResponse | None:
+def _participant_identity(
+    db: Session,
+    user_id,
+    *,
+    storage: MediaStorage,
+) -> ConversationParticipantResponse | None:
     profile = db.scalar(select(Profile).where(Profile.user_id == user_id))
     if profile is None:
         return None
+
+    avatar = profile.avatar
+    if profile.avatar_asset_id is not None:
+        asset = MediaRepository(db).get_asset(profile.avatar_asset_id)
+        if asset is not None:
+            avatar = storage.get_read_url(storage_key=asset.storage_key)
+
     return ConversationParticipantResponse(
         user_id=profile.user_id,
         username=profile.username,
         display_name=profile.display_name,
-        avatar=profile.avatar,
+        avatar=avatar,
     )
 
 
 def _conversation_response(
-    db: Session, conversation: Conversation
+    db: Session,
+    conversation: Conversation,
+    *,
+    storage: MediaStorage,
 ) -> ConversationResponse:
     latest = db.scalar(
         select(DirectMessage)
@@ -68,8 +88,12 @@ def _conversation_response(
         id=conversation.id,
         participant_one_id=conversation.participant_one_id,
         participant_two_id=conversation.participant_two_id,
-        participant_one=_participant_identity(db, conversation.participant_one_id),
-        participant_two=_participant_identity(db, conversation.participant_two_id),
+        participant_one=_participant_identity(
+            db, conversation.participant_one_id, storage=storage
+        ),
+        participant_two=_participant_identity(
+            db, conversation.participant_two_id, storage=storage
+        ),
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
         latest_message=_message_response(latest) if latest else None,
@@ -91,13 +115,14 @@ def _raise_messaging_error(error: MessagingError) -> None:
 def create_conversation(
     payload: ConversationCreateRequest,
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
     session: AuthenticatedSession = Depends(get_authenticated_session),
 ) -> ConversationResponse:
     try:
         conversation = get_or_create_conversation(
             db, session.user_id, payload.recipient_id
         )
-        return _conversation_response(db, conversation)
+        return _conversation_response(db, conversation, storage=storage)
     except MessagingError as error:
         _raise_messaging_error(error)
 
@@ -109,12 +134,13 @@ def create_conversation(
 def inbox(
     limit: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
     session: AuthenticatedSession = Depends(get_authenticated_session),
 ) -> list[ConversationResponse]:
     try:
         conversations = list_conversations(db, session.user_id, limit)
         return [
-            _conversation_response(db, conversation)
+            _conversation_response(db, conversation, storage=storage)
             for conversation in conversations
         ]
     except MessagingError as error:
