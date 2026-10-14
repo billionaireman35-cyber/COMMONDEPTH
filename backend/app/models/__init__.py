@@ -33,3 +33,7 @@ from app.models.content import PostLike, PostComment, PostRepost, PostBookmark
 from app.models.development_fixture import DevelopmentFixtureUser
 
 from app.models.username_registry import UsernameRegistry
+
+from app.models.messaging import Conversation, DirectMessage
+
+__all__.extend(["Conversation", "DirectMessage"])
