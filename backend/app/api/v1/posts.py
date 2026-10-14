@@ -70,6 +70,7 @@ from app.services.engagement import (
 )
 
 from app.services.session_authentication import AuthenticatedSession
+from app.services.comment_read_model import serialize_comment_responses
 
 
 router = APIRouter(prefix="/posts", tags=["posts"])
@@ -556,6 +557,7 @@ def create_comment(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> PostCommentResponse:
     try:
         comment = comment_on_post(
@@ -585,7 +587,11 @@ def create_comment(
             detail="Comment could not be created.",
         ) from None
 
-    return PostCommentResponse.model_validate(comment)
+    return serialize_comment_responses(
+        db,
+        [comment],
+        storage=storage,
+    )[0]
 
 
 @router.get(
@@ -600,6 +606,7 @@ def get_comments(
         get_authenticated_session
     ),
     db: Session = Depends(get_db),
+    storage: MediaStorage = Depends(get_media_storage),
 ) -> PostCommentListResponse:
     try:
         comments, next_cursor = list_post_comments(
@@ -631,10 +638,11 @@ def get_comments(
         ) from None
 
     return PostCommentListResponse(
-        items=[
-            PostCommentResponse.model_validate(comment)
-            for comment in comments
-        ],
+        items=serialize_comment_responses(
+            db,
+            comments,
+            storage=storage,
+        ),
         next_cursor=next_cursor,
     )
 

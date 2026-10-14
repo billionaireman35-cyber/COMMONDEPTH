@@ -9,6 +9,7 @@ from app.api.v1.social import router as social_router
 from app.api.v1.feed import router as feed_router
 from app.api.v1.discover import router as discover_router
 from app.api.v1.media import router as media_router
+from app.api.v1.stories import router as stories_router
 from app.core.config import get_settings
 
 
@@ -60,6 +61,11 @@ app.include_router(
 
 app.include_router(
     media_router,
+    prefix=settings.api_v1_prefix,
+)
+
+app.include_router(
+    stories_router,
     prefix=settings.api_v1_prefix,
 )
 

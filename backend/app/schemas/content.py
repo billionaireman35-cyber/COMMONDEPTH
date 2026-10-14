@@ -57,6 +57,9 @@ class PostCommentResponse(BaseModel):
     content: str
     created_at: datetime
     updated_at: datetime
+    username: str | None = None
+    display_name: str | None = None
+    avatar: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
