@@ -8,6 +8,7 @@ from app.api.dependencies import get_authenticated_session, get_media_storage
 from app.core.database import get_db
 from app.integrations.media_storage.protocol import MediaStorage
 from app.models.media import MediaAsset
+from app.models.profile import Profile
 from app.models.social import Follow
 from app.models.story import Story, StoryMedia
 from app.schemas.stories import StoryCreateRequest, StoryResponse, StoryMediaResponse
@@ -25,6 +26,7 @@ def _serialize_story(
     db: Session,
     story: Story,
     storage: MediaStorage,
+    author_username: str,
 ) -> StoryResponse:
     statement = (
         select(StoryMedia, MediaAsset)
@@ -60,6 +62,7 @@ def _serialize_story(
     return StoryResponse(
         id=story.id,
         author_id=story.author_id,
+        author_username=author_username,
         visibility=story.visibility,
         text_content=story.text_content,
         expires_at=story.expires_at,
@@ -92,7 +95,15 @@ def publish_story(
     except StoryValidationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
-    return _serialize_story(db, story, storage)
+    author_username = db.execute(
+        select(Profile.username).where(Profile.user_id == story.author_id)
+    ).scalar_one_or_none()
+    if author_username is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Story publisher profile is unavailable.",
+        )
+    return _serialize_story(db, story, storage, author_username)
 
 
 @router.get("/home", response_model=list[StoryResponse])
@@ -108,7 +119,8 @@ def get_home_stories(
     now = datetime.now(timezone.utc)
 
     statement = (
-        select(Story)
+        select(Story, Profile.username)
+        .join(Profile, Profile.user_id == Story.author_id)
         .where(
             Story.author_id.in_(followed_ids) | (Story.author_id == viewer_id),
             Story.expires_at > now,
@@ -118,5 +130,8 @@ def get_home_stories(
         .limit(100)
     )
 
-    stories = db.execute(statement).scalars().all()
-    return [_serialize_story(db, story, storage) for story in stories]
+    rows = db.execute(statement).all()
+    return [
+        _serialize_story(db, story, storage, author_username)
+        for story, author_username in rows
+    ]

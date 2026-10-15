@@ -34,6 +34,7 @@ class StoryMediaResponse(BaseModel):
 class StoryResponse(BaseModel):
     id: UUID
     author_id: UUID
+    author_username: str
     visibility: Literal["public", "followers"]
     text_content: str | None
     expires_at: datetime
