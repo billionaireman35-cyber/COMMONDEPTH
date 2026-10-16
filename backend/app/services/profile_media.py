@@ -64,6 +64,7 @@ def serialize_profile_response(
 ) -> ProfileResponse:
     """Build a full profile response with fresh signed image URLs."""
     response = ProfileResponse.model_validate(profile)
+    response.account_type = profile.user.account_type
     response.post_count = ContentRepository(db).count_by_author(
         author_id=profile.user_id,
         viewer_user_id=viewer_user_id,
@@ -95,6 +96,7 @@ def serialize_profile_discovery_response(
 ) -> ProfileDiscoveryResponse:
     """Build a discovery response without exposing asset identifiers."""
     response = ProfileDiscoveryResponse.model_validate(profile)
+    response.account_type = profile.user.account_type
 
     if profile.avatar_asset_id is not None:
         asset = MediaRepository(db).get_asset(profile.avatar_asset_id)

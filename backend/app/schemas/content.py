@@ -31,6 +31,7 @@ class PostResponse(BaseModel):
     id: UUID
     author_id: UUID
     author_username: str
+    author_account_type: Literal["individual", "creator", "organization"] = "individual"
     content: str
     visibility: Literal["public", "followers"]
     created_at: datetime

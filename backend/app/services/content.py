@@ -38,8 +38,18 @@ class PostMediaReadModel:
 class PostReadModel:
     post: Post
     author_username: str
+    author_account_type: str
     engagement: PostEngagementSummary
     media: list[PostMediaReadModel]
+
+
+def build_author_identities(
+    db: Session,
+    *,
+    posts: list[Post],
+) -> dict[UUID, tuple[str, str]]:
+    author_ids = {post.author_id for post in posts}
+    return ProfileRepository(db).get_author_identities_by_user_ids(author_ids)
 
 
 def build_author_usernames(
@@ -47,8 +57,13 @@ def build_author_usernames(
     *,
     posts: list[Post],
 ) -> dict[UUID, str]:
-    author_ids = {post.author_id for post in posts}
-    return ProfileRepository(db).get_usernames_by_user_ids(author_ids)
+    return {
+        user_id: identity[0]
+        for user_id, identity in build_author_identities(
+            db,
+            posts=posts,
+        ).items()
+    }
 
 
 class ContentError(Exception):
@@ -335,10 +350,11 @@ def get_post_read_model(
         post_ids=[post.id],
         storage=storage,
     ).get(post.id, [])
-    usernames = build_author_usernames(db, posts=[post])
+    identities = build_author_identities(db, posts=[post])
     return PostReadModel(
         post=post,
-        author_username=usernames.get(post.author_id, ""),
+        author_username=identities.get(post.author_id, ("", "individual"))[0],
+        author_account_type=identities.get(post.author_id, ("", "individual"))[1],
         engagement=engagement,
         media=media,
     )
@@ -373,12 +389,13 @@ def list_posts_by_author_read_model(
         post_ids=post_ids,
         storage=storage,
     )
-    usernames = build_author_usernames(db, posts=posts)
+    identities = build_author_identities(db, posts=posts)
 
     return [
         PostReadModel(
             post=post,
-            author_username=usernames.get(post.author_id, ""),
+            author_username=identities.get(post.author_id, ("", "individual"))[0],
+            author_account_type=identities.get(post.author_id, ("", "individual"))[1],
             engagement=summaries[post.id],
             media=media_by_post.get(post.id, []),
         )
@@ -479,12 +496,13 @@ def _build_profile_activity_post_read_models(
         post_ids=post_ids,
         storage=storage,
     )
-    usernames = build_author_usernames(db, posts=posts)
+    identities = build_author_identities(db, posts=posts)
 
     return {
         post.id: PostReadModel(
             post=post,
-            author_username=usernames.get(post.author_id, ""),
+            author_username=identities.get(post.author_id, ("", "individual"))[0],
+            author_account_type=identities.get(post.author_id, ("", "individual"))[1],
             engagement=summaries[post.id],
             media=media_by_post.get(post.id, []),
         )
@@ -663,12 +681,13 @@ def list_saved_posts_read_model(
         post_ids=post_ids,
         storage=storage,
     )
-    usernames = build_author_usernames(db, posts=posts)
+    identities = build_author_identities(db, posts=posts)
 
     return [
         PostReadModel(
             post=post,
-            author_username=usernames.get(post.author_id, ""),
+            author_username=identities.get(post.author_id, ("", "individual"))[0],
+            author_account_type=identities.get(post.author_id, ("", "individual"))[1],
             engagement=summaries[post.id],
             media=media_by_post.get(post.id, []),
         )

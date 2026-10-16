@@ -29,6 +29,12 @@ class User(Base):
         nullable=False,
         default="active",
     )
+    account_type: Mapped[str] = mapped_column(
+        String(24),
+        nullable=False,
+        default="individual",
+        server_default="individual",
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -65,6 +71,10 @@ class User(Base):
             "('active', 'suspended', 'deactivated', "
             "'pending_deletion', 'deleted')",
             name="ck_users_status",
+        ),
+        CheckConstraint(
+            "account_type IN ('individual', 'creator', 'organization')",
+            name="ck_users_account_type",
         ),
     )
 

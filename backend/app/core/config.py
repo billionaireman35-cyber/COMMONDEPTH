@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     google_client_id: str | None = None
     onboarding_curated_usernames: str = ""
     feed_editorial_usernames: str = ""
+    advertising_reviewer_user_ids: str = ""
 
     media_storage_provider: str = "supabase"
     supabase_s3_endpoint: str

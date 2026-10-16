@@ -40,3 +40,6 @@ __all__.extend(["Conversation", "DirectMessage"])
 
 from app.models.spaces import Space, SpaceMembership
 __all__.extend(["Space", "SpaceMembership"])
+
+from app.models.advertising import AdCampaign, AdReviewEvent
+__all__.extend(["AdCampaign", "AdReviewEvent"])

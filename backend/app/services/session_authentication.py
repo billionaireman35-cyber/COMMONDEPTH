@@ -22,6 +22,7 @@ class AuthenticatedSession:
     session_id: UUID
     user_id: UUID
     session_expires_at: datetime
+    account_type: str
 
 
 def _hash_session_token(session_token: str) -> str:
@@ -71,6 +72,7 @@ def authenticate_session(
         session_id=session.id,
         user_id=user.id,
         session_expires_at=session.expires_at,
+        account_type=user.account_type,
     )
 
 

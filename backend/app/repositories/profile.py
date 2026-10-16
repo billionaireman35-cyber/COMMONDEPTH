@@ -34,6 +34,24 @@ class ProfileRepository:
         profiles = self.db.scalars(statement).all()
         return {profile.user_id: profile.username for profile in profiles}
 
+    def get_author_identities_by_user_ids(
+        self,
+        user_ids: set[UUID],
+    ) -> dict[UUID, tuple[str, str]]:
+        if not user_ids:
+            return {}
+
+        statement = (
+            select(Profile.user_id, Profile.username, User.account_type)
+            .join(User, User.id == Profile.user_id)
+            .where(Profile.user_id.in_(user_ids))
+        )
+        rows = self.db.execute(statement).all()
+        return {
+            user_id: (username, account_type)
+            for user_id, username, account_type in rows
+        }
+
     def add(self, profile: Profile) -> Profile:
         self.db.add(profile)
         return profile

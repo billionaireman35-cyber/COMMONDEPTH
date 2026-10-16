@@ -84,6 +84,7 @@ def _post_response(read_model: PostReadModel) -> PostResponse:
         id=post.id,
         author_id=post.author_id,
         author_username=read_model.author_username,
+        author_account_type=read_model.author_account_type,
         content=post.content,
         visibility=post.visibility,
         created_at=post.created_at,

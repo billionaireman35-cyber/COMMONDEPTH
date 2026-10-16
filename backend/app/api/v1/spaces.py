@@ -8,6 +8,7 @@ from app.schemas.spaces import SpaceCreateRequest, SpaceResponse
 from app.services.session_authentication import AuthenticatedSession
 from app.services.spaces import (
     SpaceActorInactiveError,
+    SpaceAccountTypePermissionError,
     SpaceError,
     SpaceNotFoundError,
     SpaceSlugTakenError,
@@ -49,7 +50,10 @@ def _response(
 def _raise_space_error(error: SpaceError) -> None:
     if isinstance(error, SpaceSlugTakenError):
         code = status.HTTP_409_CONFLICT
-    elif isinstance(error, SpaceActorInactiveError):
+    elif isinstance(error, (
+        SpaceActorInactiveError,
+        SpaceAccountTypePermissionError,
+    )):
         code = status.HTTP_403_FORBIDDEN
     elif isinstance(error, SpaceNotFoundError):
         code = status.HTTP_404_NOT_FOUND

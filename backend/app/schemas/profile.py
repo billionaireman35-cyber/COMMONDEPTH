@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -33,6 +34,7 @@ class ProfileUpdateRequest(BaseModel):
 
 
 class ProfileResponse(BaseModel):
+    account_type: Literal["individual", "creator", "organization"] = "individual"
     id: UUID
     user_id: UUID
     username: str
@@ -52,6 +54,7 @@ class ProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class ProfileDiscoveryResponse(BaseModel):
+    account_type: Literal["individual", "creator", "organization"] = "individual"
     id: UUID
     user_id: UUID
     username: str

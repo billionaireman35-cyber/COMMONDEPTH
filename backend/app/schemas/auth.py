@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -17,6 +18,7 @@ class RegistrationRequest(BaseModel):
 
     email: str
     password: str
+    account_type: Literal["individual", "creator", "organization"] = "individual"
     device: DeviceRegistrationRequest | None = None
 
 
@@ -45,6 +47,7 @@ class LoginResponse(BaseModel):
 class CurrentUserResponse(BaseModel):
     user_id: UUID
     status: str
+    account_type: Literal["individual", "creator", "organization"] = "individual"
 
 
 class GoogleLoginRequest(BaseModel):

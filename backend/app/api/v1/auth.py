@@ -64,6 +64,7 @@ def register(
             db,
             email=request.email,
             password=request.password,
+            account_type=request.account_type,
             device=device,
         )
     except InvalidRegistrationInputError as exc:
@@ -192,6 +193,7 @@ def me(
     return CurrentUserResponse(
         user_id=authenticated.user_id,
         status="active",
+        account_type=authenticated.account_type,
     )
 
 

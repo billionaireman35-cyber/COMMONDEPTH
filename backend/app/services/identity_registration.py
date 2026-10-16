@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 import secrets
+from typing import Literal
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -115,6 +116,7 @@ def register_identity(
     *,
     email: str,
     password: str,
+    account_type: Literal["individual", "creator", "organization"] = "individual",
     device: DeviceRegistrationInput | None = None,
 ) -> RegistrationResult:
     """
@@ -123,6 +125,9 @@ def register_identity(
     The service owns commit/rollback. The repository only performs
     persistence operations.
     """
+    if account_type not in ("individual", "creator", "organization"):
+        raise InvalidRegistrationInputError("Invalid account type.")
+
     normalized_email = _normalize_email(email)
     _validate_password(password)
     _validate_device(device)
@@ -142,7 +147,7 @@ def register_identity(
         session_token, token_hash = _generate_session_token()
         session_expires_at = now + SESSION_LIFETIME
 
-        user = User(status="active")
+        user = User(status="active", account_type=account_type)
         repository.add_user(user)
         db.flush()
 

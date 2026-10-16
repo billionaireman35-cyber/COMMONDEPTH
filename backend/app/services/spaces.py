@@ -16,6 +16,10 @@ class SpaceActorInactiveError(SpaceError):
     """The actor is not an active user."""
 
 
+class SpaceAccountTypePermissionError(SpaceError):
+    """The account type cannot create the requested Space type."""
+
+
 class SpaceSlugTakenError(SpaceError):
     """The requested Space slug is already in use."""
 
@@ -42,6 +46,16 @@ def create_space(
     owner = db.get(User, owner_id)
     if owner is None or owner.status != "active":
         raise SpaceActorInactiveError("An active account is required.")
+
+    permitted_space_types = {
+        "individual": {"community"},
+        "creator": {"creator", "community"},
+        "organization": {"organization", "community"},
+    }
+    if space_type not in permitted_space_types.get(owner.account_type, set()):
+        raise SpaceAccountTypePermissionError(
+            "Your account type is not permitted to create this Space type."
+        )
 
     space = Space(
         owner_id=owner_id,

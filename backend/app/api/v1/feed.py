@@ -51,6 +51,7 @@ def get_feed(
                 id=read_model.post.id,
                 author_id=read_model.post.author_id,
                 author_username=read_model.author_username,
+                author_account_type=read_model.author_account_type,
                 content=read_model.post.content,
                 visibility=read_model.post.visibility,
                 created_at=read_model.post.created_at,

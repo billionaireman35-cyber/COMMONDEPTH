@@ -17,6 +17,7 @@ import app.models.story
 import app.models.reel
 import app.models.live
 import app.models.spaces
+import app.models.advertising
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
