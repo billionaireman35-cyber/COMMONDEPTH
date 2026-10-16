@@ -37,3 +37,6 @@ from app.models.username_registry import UsernameRegistry
 from app.models.messaging import Conversation, DirectMessage
 
 __all__.extend(["Conversation", "DirectMessage"])
+
+from app.models.spaces import Space, SpaceMembership
+__all__.extend(["Space", "SpaceMembership"])
