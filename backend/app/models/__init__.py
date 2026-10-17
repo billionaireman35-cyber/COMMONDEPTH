@@ -43,3 +43,6 @@ __all__.extend(["Space", "SpaceMembership"])
 
 from app.models.advertising import AdCampaign, AdReviewEvent
 __all__.extend(["AdCampaign", "AdReviewEvent"])
+
+from app.models.creator_profile import CreatorProfile
+__all__.append("CreatorProfile")
